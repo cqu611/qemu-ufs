@@ -1,0 +1,3 @@
+# Compiling generated files
+*.o
+*.d
