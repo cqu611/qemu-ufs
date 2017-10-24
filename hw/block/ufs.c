@@ -672,6 +672,7 @@ static const TypeInfo ufs_info = {
 
 static void ufs_register_types(void)
 {
+    printf("Hi~This is at line 675");
     type_register_static(&ufs_info);
 }
 
