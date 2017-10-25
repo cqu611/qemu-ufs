@@ -171,7 +171,8 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 }
 
 static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
-{
+{	   
+	 printf("ufs mmio read.\n");
 //    NvmeCtrl *n = (NvmeCtrl *)opaque;
 //    uint8_t *ptr = (uint8_t *)&n->bar;
 //    uint64_t val = 0;
@@ -264,6 +265,7 @@ static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
 static void ufs_mmio_write(void *opaque, hwaddr addr, uint64_t data,
     unsigned size)
 {
+	  printf("ufs mmio write.\n");
  //   NvmeCtrl *n = (NvmeCtrl *)opaque;
  //   if (addr < sizeof(n->bar)) {
  //       nvme_write_bar(n, addr, data, size);
@@ -365,6 +367,7 @@ static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-
 
 static void ufs_init_ctrl(UfsCtrl *n)
 {
+	  printf("ufs init ctrl \n");
  //   int i;
  //   UfsIdCtrl *id = &n->id_ctrl;
  //   uint8_t *pci_conf = n->parent_obj.config;
@@ -439,7 +442,8 @@ static void ufs_init_ctrl(UfsCtrl *n)
 }
 
 static void ufs_init_pci(UfsCtrl *n)
-{
+{   
+	printf("ufs init pci\n");
     uint8_t *pci_conf = n->parent_obj.config;
 
     pci_conf[PCI_INTERRUPT_PIN] = 1;
@@ -454,6 +458,8 @@ static void ufs_init_pci(UfsCtrl *n)
     pci_register_bar(&n->parent_obj, 0,
         PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
         &n->iomem);
+	
+	printf("ufs init pci over\n");
     // msix_init_exclusive_bar(&n->parent_obj, n->num_queues, 4);
     // msi_init(&n->parent_obj, 0x50, 32, true, false);				//message signal interrupt, which is a system bus register		aran-lq
 
@@ -473,8 +479,9 @@ static void ufs_init_pci(UfsCtrl *n)
 }
 
 static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备指针				aran-lq
-{
- //   NvmeCtrl *n = NVME(pci_dev);
+{	  
+	  printf("ufs_init\n");
+      UfsCtrl *n = UFS(pci_dev);
  //   int64_t bs_size;
 
  //   blkconf_serial(&n->conf, &n->serial);
@@ -499,8 +506,8 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
  //   n->features.int_vector_config = g_malloc0(n->num_queues *
  //       sizeof(*n->features.int_vector_config));
 
- //   ufs_init_pci(n);
- //   ufs_init_ctrl(n);						//nvmeIdCtrl 的初始化，主要是Controller register CAP的置位和设置等等		  aran-lq
+	   ufs_init_pci(n);
+	   ufs_init_ctrl(n);						//nvmeIdCtrl 的初始化，主要是Controller register CAP的置位和设置等等		  aran-lq
  //   ufs_init_lun(n);
  //   if (lnvm_dev(n))
  //       return lnvm_init(n);				//添加的代码 			aran-lq
@@ -523,6 +530,7 @@ static void lnvm_exit(UfsCtrl *n)
 
 static void ufs_exit(PCIDevice *pci_dev)
 {
+	  printf("ufs exit\n");
  //   UfsCtrl *n = UFS(pci_dev);
 
  //   ufs_clear_ctrl(n);
@@ -544,7 +552,7 @@ static void ufs_exit(PCIDevice *pci_dev)
 }
 
 static Property ufs_props[] = {
- //   DEFINE_BLOCK_PROPERTIES(NvmeCtrl, conf),
+      DEFINE_BLOCK_PROPERTIES(UfsCtrl, conf),
  //   DEFINE_PROP_STRING("serial", NvmeCtrl, serial),
  //   DEFINE_PROP_UINT32("namespaces", NvmeCtrl, num_namespaces, 1),	//name, state, field, defval	aran-lq
  //   DEFINE_PROP_UINT32("queues", NvmeCtrl, num_queues, 64),
@@ -596,7 +604,7 @@ static Property ufs_props[] = {
  //   DEFINE_PROP_UINT32("ln_err_write", NvmeCtrl, lnvm_ctrl.n_err_write, 0),
  //   DEFINE_PROP_UINT8("ldebug", NvmeCtrl, lnvm_ctrl.debug, 0),
  //   DEFINE_PROP_UINT8("lstrict", NvmeCtrl, lnvm_ctrl.strict, 0),
- //   DEFINE_PROP_END_OF_LIST(),
+      DEFINE_PROP_END_OF_LIST(),
 };
 
 static const VMStateDescription ufs_vmstate = {
@@ -605,20 +613,23 @@ static const VMStateDescription ufs_vmstate = {
 };
 
 static void ufs_class_init(ObjectClass *oc, void *data)
-{
+{	
+	printf("ufs class init\n");
     DeviceClass *dc = DEVICE_CLASS(oc);			//将信息分别给到device_class和pci_device_class				aran-lq
     PCIDeviceClass *pc = PCI_DEVICE_CLASS(oc);
 
     pc->init = ufs_init;						//包括了lnvm_init				aran-lq
     pc->exit = ufs_exit;
-    pc->class_id = PCI_CLASS_STORAGE_OTHER;     //not EXPRESS                   aran-lq
+    pc->class_id = PCI_CLASS_STORAGE_EXPRESS;     //not EXPRESS                   aran-lq
     pc->vendor_id = 0x1d1d;
-    pc->is_express = 0;                         //Not pcie but pci          aran-lq
+    pc->is_express = 1;                         //Not pcie but pci          aran-lq
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Universal Flash Storage";
+	printf("ufs property initialize\n");
     dc->props = ufs_props;
     dc->vmsd = &ufs_vmstate;                    //vmstate   aran-lq
+	printf("ufs class init over\n");
 }
 
 static void ufs_get_bootindex(Object *obj, Visitor *v, void *opaque,
@@ -672,7 +683,7 @@ static const TypeInfo ufs_info = {
 
 static void ufs_register_types(void)
 {
-    printf("Hi~This is at line 675");
+    printf("UFS register \n");
     type_register_static(&ufs_info);
 }
 

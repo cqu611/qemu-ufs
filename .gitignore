@@ -1,6 +1,7 @@
 # Compiling generated files
 *.o
 *.d
+*.mak
 aarch64-linux-user/
 aarch64-softmmu/
 alpha-linux-user/
