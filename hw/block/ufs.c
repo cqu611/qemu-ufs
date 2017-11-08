@@ -4,8 +4,8 @@
 #include <exec/memory.h>
 #include <hw/block/block.h>
 #include <hw/hw.h>
-#include <hw/pci/msix.h>
-#include <hw/pci/msi.h>
+//#include <hw/pci/msix.h>
+//#include <hw/pci/msi.h>
 #include <hw/pci/pci.h>
 #include <qapi/visitor.h>
 #include <qemu/bitops.h>
@@ -317,6 +317,7 @@ static const MemoryRegionOps ufs_mmio_ops = {
 
 static int ufs_check_constraints(UfsCtrl *n)
 {
+		printf("ufs check constraints\n");
  //   if ((!(n->conf.blk)) || !(n->serial) ||
  //       (n->num_namespaces == 0 || n->num_namespaces > NVME_MAX_NUM_NAMESPACES) ||
  //       (n->num_queues < 1 || n->num_queues > NVME_MAX_QS) ||
@@ -348,6 +349,7 @@ static int ufs_check_constraints(UfsCtrl *n)
 
 static void ufs_init_lun(UfsCtrl *n)
 {
+	printf("ufs init lun\n");
  }
 
 static void lnvm_init_id_ctrl(LnvmCtrl *ln)
@@ -368,15 +370,15 @@ static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-
 static void ufs_init_ctrl(UfsCtrl *n)
 {
 	  printf("ufs init ctrl \n");
- //   int i;
- //   UfsIdCtrl *id = &n->id_ctrl;
- //   uint8_t *pci_conf = n->parent_obj.config;
+      //int i;
+//      UfsIdCtrl *id = &n->id_ctrl;
+//	  uint8_t *pci_conf = n->parent_obj.config;
 
- //   id->vid = cpu_to_le16(pci_get_word(pci_conf + PCI_VENDOR_ID));
- //   id->ssvid = cpu_to_le16(pci_get_word(pci_conf + PCI_SUBSYSTEM_VENDOR_ID));
- //   strpadcpy((char *)id->mn, sizeof(id->mn), "QEMU Ufs Ctrl", ' ');
- //   strpadcpy((char *)id->fr, sizeof(id->fr), "1.0", ' ');
- //   strpadcpy((char *)id->sn, sizeof(id->sn), n->serial, ' ');
+//	  id->vid = cpu_to_le16(pci_get_word(pci_conf + PCI_VENDOR_ID));
+//      id->ssvid = cpu_to_le16(pci_get_word(pci_conf + PCI_SUBSYSTEM_VENDOR_ID));
+ //     strpadcpy((char *)id->mn, sizeof(id->mn), "QEMU Ufs Ctrl", ' ');
+ //     strpadcpy((char *)id->fr, sizeof(id->fr), "1.0", ' ');
+//      strpadcpy((char *)id->sn, sizeof(id->sn), n->serial, ' ');
  //   id->rab = 6;
  //   id->ieee[0] = 0x00;
  //   id->ieee[1] = 0x02;
@@ -419,26 +421,29 @@ static void ufs_init_ctrl(UfsCtrl *n)
  //       n->features.int_vector_config[i] = i | (n->intc << 16);
  //   }
  //   /* 寄存器设置        aran-lq */
- //   n->bar.cap = 0;
- //   NVME_CAP_SET_MQES(n->bar.cap, n->max_q_ents);
- //   NVME_CAP_SET_CQR(n->bar.cap, n->cqr);
- //   NVME_CAP_SET_AMS(n->bar.cap, 1);
- //   NVME_CAP_SET_TO(n->bar.cap, 0xf);
- //   NVME_CAP_SET_DSTRD(n->bar.cap, n->db_stride);
- //   NVME_CAP_SET_NSSRS(n->bar.cap, 0);
- //   NVME_CAP_SET_CSS(n->bar.cap, 1);
- //   if (lnvm_dev(n))
- //       NVME_CAP_SET_LNVM(n->bar.cap, 1);
+	  n->bar.cap = 0x1707101f;
+	  n->bar.vs = 0x00000210;
+	  n->bar.is = 0x00000000;
+	  n->bar.ie = 0x00000000;
+	  n->bar.hcs = 0x0000000f;
+	  n->bar.hce = 0x00000001;
+	  n->bar.utrlba = 0x80000000;
+	  n->bar.utrlbau = 0xb0000000;
+	  n->bar.utrldbr = 0x00000000;
+	  n->bar.utrlclr = 0x00000000;
+	  n->bar.utrlrsr = 0x00000000;
+	  n->bar.utmrlba = 0xe0000000;
+	  n->bar.utmrlbau = 0xf8000000;
+	  n->bar.utmrldbr = 0x00000000;
+	  n->bar.utmrlclr = 0x00000000;
+	  n->bar.utmrlrsr = 0x00000000;
+	  
+	  printf("ufs init ctrl over \n");
 
- //   NVME_CAP_SET_MPSMIN(n->bar.cap, n->mpsmin);
- //   NVME_CAP_SET_MPSMAX(n->bar.cap, n->mpsmax);
-
- //   if (n->cmbsz)
- //       n->bar.vs = 0x00010200;
- //   else
- //       n->bar.vs = 0x00010100;
- //   n->bar.intmc = n->bar.intms = 0;
- //   n->temperature = NVME_TEMPERATURE;
+	  
+	
+   
+ 
 }
 
 static void ufs_init_pci(UfsCtrl *n)
@@ -450,49 +455,34 @@ static void ufs_init_pci(UfsCtrl *n)
     pci_config_set_prog_interface(pci_conf, 0x2);
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
-    pci_config_set_class(pci_conf, PCI_CLASS_STORAGE_EXPRESS);
-    pcie_endpoint_cap_init(&n->parent_obj, 0x80);
+    pci_config_set_class(pci_conf, PCI_CLASS_STORAGE_OTHER);
+  //  pcie_endpoint_cap_init(&n->parent_obj, 0x80);								// NO pcie 					aran-lq
 
-    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufs",		//nvme_mmio_ops  函数注册吗？				aran-lq
+    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//nvme_mmio_ops  函数注册吗？				aran-lq
         n->reg_size);
     pci_register_bar(&n->parent_obj, 0,
         PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
         &n->iomem);
 	
 	printf("ufs init pci over\n");
-    // msix_init_exclusive_bar(&n->parent_obj, n->num_queues, 4);
-    // msi_init(&n->parent_obj, 0x50, 32, true, false);				//message signal interrupt, which is a system bus register		aran-lq
-
-    // if (n->cmbsz) {                                         //如果支持再分配属于CMB的内存区域       aran-lq
-
-    //     n->bar.cmbloc = n->cmbloc;
-    //     n->bar.cmbsz  = n->cmbsz;
-
-    //     n->cmbuf = g_malloc0(NVME_CMBSZ_GETSIZE(n->bar.cmbsz));
-    //     memory_region_init_io(&n->ctrl_mem, OBJECT(n), &nvme_cmb_ops, n, "nvme-cmb",
-    //                           NVME_CMBSZ_GETSIZE(n->bar.cmbsz));
-    //     pci_register_bar(&n->parent_obj, NVME_CMBLOC_BIR(n->bar.cmbloc),
-    //         PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
-    //         &n->ctrl_mem);
-
-    //}
+   
 }
 
 static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备指针				aran-lq
 {	  
 	  printf("ufs_init\n");
       UfsCtrl *n = UFS(pci_dev);
- //   int64_t bs_size;
+	  int64_t bs_size;
 
- //   blkconf_serial(&n->conf, &n->serial);
- //   if (nvme_check_constraints(n)) {
- //       return -1;
- //   }
+	  blkconf_serial(&n->conf, &n->serial);
+      if (ufs_check_constraints(n)) {
+	      return -1;
+      }
 
- //   bs_size = blk_getlength(n->conf.blk);
- //   if (bs_size < 0) {
- //       return -1;
- //   }
+      bs_size = blk_getlength(n->conf.blk);
+      if (bs_size < 0) {
+          return -1;
+      }
 
  //   n->start_time = time(NULL);
  //   n->reg_size = 1 << qemu_fls(0x1004 + 2 * (n->num_queues + 1) * 4);
@@ -511,6 +501,7 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
  //   ufs_init_lun(n);
  //   if (lnvm_dev(n))
  //       return lnvm_init(n);				//添加的代码 			aran-lq
+	   printf("ufs_init over\n");
     return 0;
 }
 
@@ -582,8 +573,8 @@ static Property ufs_props[] = {
  //   DEFINE_PROP_UINT32("cmbloc", NvmeCtrl, cmbloc, 0),
  //   DEFINE_PROP_UINT16("oacs", NvmeCtrl, oacs, NVME_OACS_FORMAT),
  //   DEFINE_PROP_UINT16("oncs", NvmeCtrl, oncs, NVME_ONCS_DSM),
- //   DEFINE_PROP_UINT16("vid", NvmeCtrl, vid, 0x1d1d),
- //   DEFINE_PROP_UINT16("did", NvmeCtrl, did, 0x1f1f),
+      DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x1CE),
+      DEFINE_PROP_UINT16("did", UfsCtrl, did, 0x1f1f),
  //   DEFINE_PROP_UINT8("lver", NvmeCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
  //   DEFINE_PROP_UINT32("ll2pmode", NvmeCtrl, lnvm_ctrl.id_ctrl.dom, 1),
  //   DEFINE_PROP_UINT16("lsec_size", NvmeCtrl, lnvm_ctrl.params.sec_size, 4096),
@@ -608,7 +599,7 @@ static Property ufs_props[] = {
 };
 
 static const VMStateDescription ufs_vmstate = {
-    .name = "ufs",
+    .name = "ufshcd",
     .unmigratable = 1,                          
 };
 
@@ -620,9 +611,9 @@ static void ufs_class_init(ObjectClass *oc, void *data)
 
     pc->init = ufs_init;						//包括了lnvm_init				aran-lq
     pc->exit = ufs_exit;
-    pc->class_id = PCI_CLASS_STORAGE_EXPRESS;     //not EXPRESS                   aran-lq
-    pc->vendor_id = 0x1d1d;
-    pc->is_express = 1;                         //Not pcie but pci          aran-lq
+    pc->class_id = PCI_CLASS_STORAGE_OTHER;     //not EXPRESS                   aran-lq
+    pc->vendor_id = 0x1CE;
+    //pc->is_express = 1;                       //NO PCIE						aran-lq
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Universal Flash Storage";
@@ -667,14 +658,16 @@ out:
 
 static void ufs_instance_init(Object *obj)
 {
+	printf("ufs instance init\n");
     object_property_add(obj, "bootindex", "int32",
                         ufs_get_bootindex,
                         ufs_set_bootindex, NULL, NULL, NULL);
     object_property_set_int(obj, -1, "bootindex", NULL);
+	printf("ufs instance over\n");
 }
 
 static const TypeInfo ufs_info = {
-    .name          = "ufs",
+    .name          = "ufshcd",
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(UfsCtrl),
     .class_init    = ufs_class_init,

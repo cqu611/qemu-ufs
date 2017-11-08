@@ -413,6 +413,41 @@ enum {
     INTERRUPT_MASK_ALL_VER_21   = 0x71FFF,
 };
 
+typedef struct UfsIdCtrl {
+    uint16_t    vid;
+    uint16_t    ssvid;
+    uint8_t     sn[20];
+    uint8_t     mn[40];
+    uint8_t     fr[8];
+    uint8_t     rab;
+    uint8_t     ieee[3];
+    uint8_t     cmic;
+    uint8_t     mdts;
+    uint8_t     rsvd255[178];
+    uint16_t    oacs;
+    uint8_t     acl;
+    uint8_t     aerl;
+    uint8_t     frmw;
+    uint8_t     lpa;
+    uint8_t     elpe;
+    uint8_t     npss;
+    uint8_t     rsvd511[248];
+    uint8_t     sqes;
+    uint8_t     cqes;
+    uint16_t    rsvd515;
+    uint32_t    nn;
+    uint16_t    oncs;
+    uint16_t    fuses;
+    uint8_t     fna;
+    uint8_t     vwc;
+    uint16_t    awun;
+    uint16_t    awupf;
+    uint8_t     rsvd703[174];
+    uint8_t     rsvd2047[1344];
+//    NvmePSD     psd[32];
+    uint8_t     vs[1024];
+} UfsIdCtrl;
+
 /*
  * Request Descriptor Definitions
  */
@@ -559,7 +594,7 @@ typedef struct UtpTaskReqDesc {
    // __le32 task_rsp_upiu[TASK_RSP_UPIU_SIZE_DWORDS];
 }UtpTaskReqDesc;
 
-#define TYPE_UFS "ufs"
+#define TYPE_UFS "ufshcd"
 #define UFS(obj) \
         OBJECT_CHECK(UfsCtrl, (obj), TYPE_UFS)
 
@@ -644,6 +679,8 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     QSIMPLEQ_HEAD(aer_queue, NvmeAsyncEvent) aer_queue;
     QEMUTimer   *aer_timer;
     uint8_t     aer_mask;
+	
+	UfsIdCtrl      id_ctrl;
 
     LnvmCtrl     lnvm_ctrl;			//lnvm controller		aran-lq
 } UfsCtrl;
