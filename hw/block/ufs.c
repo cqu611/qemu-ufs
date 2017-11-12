@@ -455,7 +455,7 @@ static void ufs_init_pci(UfsCtrl *n)
     pci_config_set_prog_interface(pci_conf, 0x2);
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
-    pci_config_set_class(pci_conf, PCI_CLASS_STORAGE_OTHER);
+    pci_config_set_class(pci_conf, 0x0000);						//change to Zero			aran-lq
   //  pcie_endpoint_cap_init(&n->parent_obj, 0x80);								// NO pcie 					aran-lq
 
     memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//nvme_mmio_ops  函数注册吗？				aran-lq
@@ -484,8 +484,8 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
           return -1;
       }
 
- //   n->start_time = time(NULL);
- //   n->reg_size = 1 << qemu_fls(0x1004 + 2 * (n->num_queues + 1) * 4);
+      n->start_time = time(NULL);
+ //     n->reg_size = 1 << qemu_fls(0x1004 + 2 * (n->num_queues + 1) * 4);
  //   n->ns_size = bs_size / (uint64_t)n->num_namespaces;
 
  //   n->sq = g_malloc0(sizeof(*n->sq)*n->num_queues);
@@ -573,8 +573,8 @@ static Property ufs_props[] = {
  //   DEFINE_PROP_UINT32("cmbloc", NvmeCtrl, cmbloc, 0),
  //   DEFINE_PROP_UINT16("oacs", NvmeCtrl, oacs, NVME_OACS_FORMAT),
  //   DEFINE_PROP_UINT16("oncs", NvmeCtrl, oncs, NVME_ONCS_DSM),
-      DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x1CE),
-      DEFINE_PROP_UINT16("did", UfsCtrl, did, 0x1f1f),
+      DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
+      DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
  //   DEFINE_PROP_UINT8("lver", NvmeCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
  //   DEFINE_PROP_UINT32("ll2pmode", NvmeCtrl, lnvm_ctrl.id_ctrl.dom, 1),
  //   DEFINE_PROP_UINT16("lsec_size", NvmeCtrl, lnvm_ctrl.params.sec_size, 4096),
@@ -611,8 +611,8 @@ static void ufs_class_init(ObjectClass *oc, void *data)
 
     pc->init = ufs_init;						//包括了lnvm_init				aran-lq
     pc->exit = ufs_exit;
-    pc->class_id = PCI_CLASS_STORAGE_OTHER;     //not EXPRESS                   aran-lq
-    pc->vendor_id = 0x1CE;
+    pc->class_id = 0x0000;     //PCI Storage Scsi                  aran-lq
+    pc->vendor_id = 0x144d;
     //pc->is_express = 1;                       //NO PCIE						aran-lq
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
