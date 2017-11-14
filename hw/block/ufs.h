@@ -153,6 +153,11 @@ enum UfsHcsShift {
     HCS_UTPES_SHIFT     = 12,
 };
 
+enum UFsHcs {
+    UFs_CMD_READY         = 1 << HCS_UCRDY_SHIFT,
+	UFs_CMD_FAILED         = 1 << HCS_DP_SHIFT,
+};
+
 enum UfsHcsMask {
     HCS_DP_MASK           = 0x1,
     HCS_UTRLRDY_MASK      = 0x1,
@@ -511,9 +516,31 @@ typedef struct UtpTaskReqDesc {
     uint32_t task_rsp_upiu[TASK_RSP_UPIU_SIZE_DWORDS];
 }UtpTaskReqDesc;
 
+typedef struct UfsLBAF {
+    uint16_t    ms;
+    uint8_t     ds;
+    uint8_t     rp;
+} UfsLBAF;
+
+typedef struct NUfsIdNs {
+    uint64_t    nsze;
+    uint64_t    ncap;
+    uint64_t    nuse;
+    uint8_t     nsfeat;
+    uint8_t     nlbaf;
+    uint8_t     flbas;
+    uint8_t     mc;
+    uint8_t     dpc;
+    uint8_t     dps;
+    uint8_t     res30[98];
+    UfsLBAF    lbaf[16];
+    uint8_t     res192[192];
+    uint8_t     vs[3712];
+} UfsIdNs;
 
 typedef struct UfsLun {
     struct UfsCtrl *ctrl;
+	UfsIdNs        id_ns;
     UfsRangeType    lba_range[64];
     unsigned long   *util;
     unsigned long   *uncorrectable;
@@ -625,6 +652,47 @@ typedef struct LnvmParams {
     uint32_t    total_units;
 } QEMU_PACKED LnvmParams;
 
+typedef struct UfsRequest {
+    struct TransReqList       *rl;
+	struct TaskManageList     *ml;
+    struct UfsLun		      *lun;
+    BlockAIOCB               *aiocb;
+    BlockAcctCookie         acct;
+    QEMUSGList              qsg;
+    QTAILQ_ENTRY(UfsRequest)entry;
+} UfsRequest;
+
+typedef struct TransReqList {				
+	UtpTaskReqDesc *utmrdl_base_addr;  
+	uint8_t     nutrs;  				//num of transfer request	aran-lq
+	struct UfsCtrl *ctrl;
+    uint64_t    dma_addr;
+    uint64_t    completed;
+	uint32_t    size;
+	uint32_t    head;
+    uint32_t    tail;
+    QEMUTimer   *timer;
+    UfsRequest *io_req;
+    QTAILQ_HEAD(trans_req_list, UfsRequest) req_list;
+    QTAILQ_ENTRY(UfsRequest) entry;
+
+}TransReqList;
+
+typedef struct TaskManageList {		
+	UtpTaskReqDesc *utmrdl_base_addr;  
+	uint8_t     nutmrs;  				//num of task management request	aran-lq
+	struct UfsCtrl *ctrl;
+    uint64_t    dma_addr;
+    uint64_t    completed;
+	uint32_t    size;
+	uint32_t    head;
+    uint32_t    tail;
+    QEMUTimer   *timer;
+    UfsRequest *io_req;
+    QTAILQ_HEAD(tm_req_list, UfsRequest) req_list;
+    QTAILQ_ENTRY(UfsRequest) entry;
+
+}TaskManageList;
 
 
 #define TYPE_UFS "ufshcd"
@@ -665,6 +733,7 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     uint16_t    page_size;
     uint16_t    page_bits;
     uint32_t    reg_size;
+	uint64_t    ns_size;
     uint32_t    num_luns;			    //num of luns		aran-lq
     uint64_t    lun_size;
     uint8_t     nutrs;                  //Number of UTP Transfer Request Slots  aran-lq
@@ -678,6 +747,8 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     QEMUTimer   *aer_timer;
     uint8_t     aer_mask;
     UfsLun      *luns;
+	TransReqList *trl;					//Transfer request List		aran-lq
+	TaskManageList *tml;				//Task management list		aran-lq
     UtpTaskReqDesc *utmrdl_base_addr;        //指向task list的基地址   aran-lq
     UtpTransferReqDesc *utrdl_base_addr;     //指向transfer request 的基地址   aran-lq
     UtpTransferCmdDesc *ucdl_base_addr;		 //pointer of utp command desriptor		aran-lq
@@ -688,8 +759,8 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
 
 
 
-static void ufs_init_pci(UfsCtrl *n)__attribute__ ((unused));
-static void ufs_init_ctrl(UfsCtrl *n)__attribute__ ((unused));
+//static void ufs_init_pci(UfsCtrl *n)__attribute__ ((unused));
+//static void ufs_init_ctrl(UfsCtrl *n)__attribute__ ((unused));
 static int lnvm_init(UfsCtrl *n)__attribute__ ((unused));
 static int lnvm_init_meta(LnvmCtrl *n)__attribute__ ((unused));
 static void lnvm_init_id_ctrl(LnvmCtrl *n)__attribute__ ((unused));
