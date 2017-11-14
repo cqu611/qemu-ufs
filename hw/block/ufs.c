@@ -505,8 +505,8 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
     return 0;
 }
 
-static void lnvm_exit(UfsCtrl *n)
-{
+//static void lnvm_exit(UfsCtrl *n)
+//{
  //   LnvmCtrl *ln = &n->lnvm_ctrl;
 
  //   if (ln->bbt_auto_gen)
@@ -517,7 +517,7 @@ static void lnvm_exit(UfsCtrl *n)
  //   fclose(n->lnvm_ctrl.metadata);
  //   n->lnvm_ctrl.bbt_fp = NULL;
  //   n->lnvm_ctrl.metadata = NULL;
-}
+//}
 
 static void ufs_exit(PCIDevice *pci_dev)
 {
@@ -544,57 +544,35 @@ static void ufs_exit(PCIDevice *pci_dev)
 
 static Property ufs_props[] = {
       DEFINE_BLOCK_PROPERTIES(UfsCtrl, conf),
- //   DEFINE_PROP_STRING("serial", NvmeCtrl, serial),
- //   DEFINE_PROP_UINT32("namespaces", NvmeCtrl, num_namespaces, 1),	//name, state, field, defval	aran-lq
- //   DEFINE_PROP_UINT32("queues", NvmeCtrl, num_queues, 64),
- //   DEFINE_PROP_UINT32("entries", NvmeCtrl, max_q_ents, 0x7ff),
- //   DEFINE_PROP_UINT8("max_cqes", NvmeCtrl, max_cqes, 0x4),
- //   DEFINE_PROP_UINT8("max_sqes", NvmeCtrl, max_sqes, 0x6),
- //   DEFINE_PROP_UINT8("stride", NvmeCtrl, db_stride, 0),
- //   DEFINE_PROP_UINT8("aerl", NvmeCtrl, aerl, 3),
- //   DEFINE_PROP_UINT8("acl", NvmeCtrl, acl, 3),
- //   DEFINE_PROP_UINT8("elpe", NvmeCtrl, elpe, 3),
- //   DEFINE_PROP_UINT8("mdts", NvmeCtrl, mdts, 10),
- //   DEFINE_PROP_UINT8("cqr", NvmeCtrl, cqr, 1),
- //   DEFINE_PROP_UINT8("vwc", NvmeCtrl, vwc, 0),
- //   DEFINE_PROP_UINT8("intc", NvmeCtrl, intc, 0),
- //   DEFINE_PROP_UINT8("intc_thresh", NvmeCtrl, intc_thresh, 0),
- //   DEFINE_PROP_UINT8("intc_time", NvmeCtrl, intc_time, 0),
- //   DEFINE_PROP_UINT8("mpsmin", NvmeCtrl, mpsmin, 0),
- //   DEFINE_PROP_UINT8("mpsmax", NvmeCtrl, mpsmax, 0),
- //   DEFINE_PROP_UINT8("nlbaf", NvmeCtrl, nlbaf, 5),
- //   DEFINE_PROP_UINT8("lba_index", NvmeCtrl, lba_index, 3),
- //   DEFINE_PROP_UINT8("extended", NvmeCtrl, extended, 0),
- //   DEFINE_PROP_UINT8("dpc", NvmeCtrl, dpc, 0),
- //   DEFINE_PROP_UINT8("dps", NvmeCtrl, dps, 0),
- //   DEFINE_PROP_UINT8("mc", NvmeCtrl, mc, 0),
- //   DEFINE_PROP_UINT8("meta", NvmeCtrl, meta, 0),
- //   DEFINE_PROP_UINT32("cmbsz", NvmeCtrl, cmbsz, 0),
- //   DEFINE_PROP_UINT32("cmbloc", NvmeCtrl, cmbloc, 0),
- //   DEFINE_PROP_UINT16("oacs", NvmeCtrl, oacs, NVME_OACS_FORMAT),
- //   DEFINE_PROP_UINT16("oncs", NvmeCtrl, oncs, NVME_ONCS_DSM),
+	  DEFINE_PROP_STRING("serial", UfsCtrl, serial),
+	  DEFINE_PROP_UINT32("luns", UfsCtrl, num_luns, 1),	//name, state, field, defval	aran-lq
+	  DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
+	  DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
+	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 32),
+	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutmrs, 8),
+	  DEFINE_PROP_UINT8("lver", UfsCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
+	  DEFINE_PROP_UINT32("ll2pmode", UfsCtrl, lnvm_ctrl.id_ctrl.dom, 0),
+	  DEFINE_PROP_UINT16("lsec_size", UfsCtrl, lnvm_ctrl.params.sec_size, 4096),
+	  DEFINE_PROP_UINT8("lsecs_per_pg", UfsCtrl, lnvm_ctrl.params.sec_per_pg, 1),
+	  DEFINE_PROP_UINT16("lpgs_per_blk", UfsCtrl, lnvm_ctrl.params.pgs_per_blk, 256),
+	  DEFINE_PROP_UINT8("lmax_sec_per_rq", UfsCtrl, lnvm_ctrl.params.max_sec_per_rq, 64),
+	  DEFINE_PROP_UINT8("lmtype", UfsCtrl, lnvm_ctrl.params.mtype, 0),
+	  DEFINE_PROP_UINT8("lfmtype", UfsCtrl, lnvm_ctrl.params.fmtype, 0),
+	  DEFINE_PROP_UINT8("lnum_ch", UfsCtrl, lnvm_ctrl.params.num_ch, 1),
+	  DEFINE_PROP_UINT8("lnum_lun", UfsCtrl, lnvm_ctrl.params.num_lun, 1),
+	  DEFINE_PROP_UINT8("lnum_pln", UfsCtrl, lnvm_ctrl.params.num_pln, 1),
+	  DEFINE_PROP_UINT8("lreadl2ptbl", UfsCtrl, lnvm_ctrl.read_l2p_tbl, 1),
+	  DEFINE_PROP_STRING("lbbtable", UfsCtrl, lnvm_ctrl.bbt_fname),
+	  DEFINE_PROP_STRING("lmetadata", UfsCtrl, lnvm_ctrl.meta_fname),
+	  DEFINE_PROP_UINT16("lmetasize", UfsCtrl, lnvm_ctrl.params.sos, 16),
+	  DEFINE_PROP_UINT8("lbbfrequency", UfsCtrl, lnvm_ctrl.bbt_gen_freq, 0),
+	  DEFINE_PROP_UINT32("lb_err_write", UfsCtrl, lnvm_ctrl.err_write, 0),
+	  DEFINE_PROP_UINT32("ln_err_write", UfsCtrl, lnvm_ctrl.n_err_write, 0),
+	  DEFINE_PROP_UINT8("ldebug", UfsCtrl, lnvm_ctrl.debug, 0),
+	  DEFINE_PROP_UINT8("lstrict", UfsCtrl, lnvm_ctrl.strict, 0),
       DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
       DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
- //   DEFINE_PROP_UINT8("lver", NvmeCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
- //   DEFINE_PROP_UINT32("ll2pmode", NvmeCtrl, lnvm_ctrl.id_ctrl.dom, 1),
- //   DEFINE_PROP_UINT16("lsec_size", NvmeCtrl, lnvm_ctrl.params.sec_size, 4096),
- //   DEFINE_PROP_UINT8("lsecs_per_pg", NvmeCtrl, lnvm_ctrl.params.sec_per_pg, 1),
- //   DEFINE_PROP_UINT16("lpgs_per_blk", NvmeCtrl, lnvm_ctrl.params.pgs_per_blk, 256),
- //   DEFINE_PROP_UINT8("lmax_sec_per_rq", NvmeCtrl, lnvm_ctrl.params.max_sec_per_rq, 64),
- //   DEFINE_PROP_UINT8("lmtype", NvmeCtrl, lnvm_ctrl.params.mtype, 0),
- //   DEFINE_PROP_UINT8("lfmtype", NvmeCtrl, lnvm_ctrl.params.fmtype, 0),		//lnvm controller的参数信息设置 				aran-lq
- //   DEFINE_PROP_UINT8("lnum_ch", NvmeCtrl, lnvm_ctrl.params.num_ch, 1),
- //   DEFINE_PROP_UINT8("lnum_lun", NvmeCtrl, lnvm_ctrl.params.num_lun, 1),
- //   DEFINE_PROP_UINT8("lnum_pln", NvmeCtrl, lnvm_ctrl.params.num_pln, 1),
- //   DEFINE_PROP_UINT8("lreadl2ptbl", NvmeCtrl, lnvm_ctrl.read_l2p_tbl, 1),
- //   DEFINE_PROP_STRING("lbbtable", NvmeCtrl, lnvm_ctrl.bbt_fname),
- //   DEFINE_PROP_STRING("lmetadata", NvmeCtrl, lnvm_ctrl.meta_fname),
- //   DEFINE_PROP_UINT16("lmetasize", NvmeCtrl, lnvm_ctrl.params.sos, 16),
- //   DEFINE_PROP_UINT8("lbbfrequency", NvmeCtrl, lnvm_ctrl.bbt_gen_freq, 0),
- //   DEFINE_PROP_UINT32("lb_err_write", NvmeCtrl, lnvm_ctrl.err_write, 0),
- //   DEFINE_PROP_UINT32("ln_err_write", NvmeCtrl, lnvm_ctrl.n_err_write, 0),
- //   DEFINE_PROP_UINT8("ldebug", NvmeCtrl, lnvm_ctrl.debug, 0),
- //   DEFINE_PROP_UINT8("lstrict", NvmeCtrl, lnvm_ctrl.strict, 0),
+ 
       DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -613,7 +591,7 @@ static void ufs_class_init(ObjectClass *oc, void *data)
     pc->exit = ufs_exit;
     pc->class_id = 0x0000;     //PCI Storage Scsi                  aran-lq
     pc->vendor_id = 0x144d;
-    //pc->is_express = 1;                       //NO PCIE						aran-lq
+
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Universal Flash Storage";
