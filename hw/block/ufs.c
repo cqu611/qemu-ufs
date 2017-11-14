@@ -47,6 +47,17 @@ static void ufs_update_trl_slot(const TransReqList *trl)
 	
 }
 
+static void ufs_update_tml_slot(const TaskManageList *tml)
+{
+	
+}
+
+static uint8_t ufs_tml_empty(TaskManageList *tml)
+{
+    return tml->head == tml->tail;
+}
+
+
 static uint8_t ufs_trl_empty(TransReqList *trl)
 {
     return trl->head == trl->tail;
@@ -109,17 +120,56 @@ static int lnvm_read_tbls(UfsCtrl *n)
     return 0;
 }
 
+static uint16_t ufs_tm_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
+{
+	return 0;
+}
+
 static uint16_t ufs_io_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
 {
    return 0;
+}
+
+static void ufs_tm_req_completion(TaskManageList *trl, UfsRequest *req)
+{
+	
 }
 
 static void ufs_enqueue_req_completion(TransReqList *trl, UfsRequest *req)
 {
 	
 }
+
 static void ufs_process_tml(void *opaque)
 {
+	printf("nvme process submission queue\n");
+    TaskManageList *tml = opaque;
+    UfsCtrl *n = tml->ctrl;
+    uint16_t status;
+    hwaddr addr;
+    CmdUPIU cmd;
+    UfsRequest *req;
+	
+    while (!(ufs_tml_empty(tml) || QTAILQ_EMPTY(&tml->req_list))) {				//while loop		aran-lq
+	
+        addr = tml->dma_addr + tml->head * n->tmle_size;
+        ufs_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
+	
+        req = QTAILQ_FIRST(&tml->req_list);
+        QTAILQ_REMOVE(&tml->req_list, req, entry);
+        req->aiocb = NULL;
+        req->cmd_opcode = cmd.opcode;
+		status=ufs_tm_cmd(n, &cmd, req);
+        if (status != UFS_NO_COMPLETE) {
+            req->status = status;
+            ufs_tm_req_completion(tml, req);
+        }
+		ufs_update_tml_slot(tml);													//clear the slot		aran-lq
+	}
+	
+    if (!ufs_tml_empty(tml)) {
+        timer_mod(tml->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
+    }
 
 }
 
