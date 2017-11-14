@@ -10,6 +10,23 @@ enum {
     ALIGNED_UPIU_SIZE       = 512,
 };
 
+typedef struct CmdUPIU {
+    uint8_t     opcode;
+    uint8_t     fuse;
+    uint16_t    cid;
+    uint32_t    nsid;
+    uint64_t    res1;
+    uint64_t    mptr;
+    uint64_t    prp1;
+    uint64_t    prp2;
+    uint32_t    cdw10;
+    uint32_t    cdw11;
+    uint32_t    cdw12;
+    uint32_t    cdw13;
+    uint32_t    cdw14;
+    uint32_t    cdw15;
+} CmdUPIU;
+
 typedef struct UfsBar {
     /* Host Capabilities */
     uint32_t    cap;
@@ -420,6 +437,11 @@ enum LnvmMetaState {
     LNVM_SEC_WRITTEN = 0xAC,
     LNVM_SEC_ERASED = 0xDC,
 };
+enum UfsStatusCodes {
+    UFS_SUCCESS                = 0x0000,
+    UFS_NO_COMPLETE            = 0xffff,
+};
+
 /* UIC Config result code / Generic error code */
 enum {
     UIC_CMD_RESULT_SUCCESS          = 0x00,
@@ -656,6 +678,8 @@ typedef struct UfsRequest {
     struct TransReqList       *rl;
 	struct TaskManageList     *ml;
     struct UfsLun		      *lun;
+	uint16_t                status;
+	uint8_t                 cmd_opcode;
     BlockAIOCB               *aiocb;
     BlockAcctCookie         acct;
     QEMUSGList              qsg;
@@ -665,6 +689,7 @@ typedef struct UfsRequest {
 typedef struct TransReqList {				
 	UtpTaskReqDesc *utmrdl_base_addr;  
 	uint8_t     nutrs;  				//num of transfer request	aran-lq
+	uint8_t     cmd_opcode;
 	struct UfsCtrl *ctrl;
     uint64_t    dma_addr;
     uint64_t    completed;
@@ -733,6 +758,8 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     uint16_t    page_size;
     uint16_t    page_bits;
     uint32_t    reg_size;
+	uint16_t    trle_size;				//transfer request list entry size				aran-lq
+	uint16_t    tmle_size;				//task management request list entry size		aran-lq
 	uint64_t    ns_size;
     uint32_t    num_luns;			    //num of luns		aran-lq
     uint64_t    lun_size;

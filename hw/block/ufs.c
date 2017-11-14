@@ -34,22 +34,24 @@
 #define LNVM_PBA_UNMAPPED UINT64_MAX
 #define LNVM_LBA_UNMAPPED UINT64_MAX
 
-//         status = sq->sqid ? nvme_io_cmd(n, &cmd, req) :
-//             nvme_admin_cmd(n, &cmd, req);		//通过sqid的值，判断是io命令还是管理命令					aran-lq
-//         if (status != NVME_NO_COMPLETE) {
-//             req->status = status;
-//             nvme_enqueue_req_completion(cq, req);
-//         }
-//     }
-//     nvme_update_sq_eventidx(sq);
-//     nvme_update_sq_tail(sq);
-// 
-//     sq->completed += processed;
-//     if (!nvme_sq_empty(sq)) {
-//         timer_mod(sq->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
-//     }
-// }
-// 
+
+
+static void ufs_addr_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
+{
+        pci_dma_read(&n->parent_obj, addr, buf, size);
+    
+}
+
+static void ufs_update_trl_slot(const TransReqList *trl)
+{
+	
+}
+
+static uint8_t ufs_trl_empty(TransReqList *trl)
+{
+    return trl->head == trl->tail;
+}
+
 static uint32_t lnvm_tbl_size(UfsLun *ns)
 {
 	return ns->tbl_entries * sizeof(*(ns->tbl));
@@ -107,6 +109,15 @@ static int lnvm_read_tbls(UfsCtrl *n)
     return 0;
 }
 
+static uint16_t ufs_io_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
+{
+   return 0;
+}
+
+static void ufs_enqueue_req_completion(TransReqList *trl, UfsRequest *req)
+{
+	
+}
 static void ufs_process_tml(void *opaque)
 {
 
@@ -114,6 +125,34 @@ static void ufs_process_tml(void *opaque)
 
 static void ufs_process_trl(void *opaque)
 {
+	printf("nvme process submission queue\n");
+    TransReqList *trl = opaque;
+    UfsCtrl *n = trl->ctrl;
+    uint16_t status;
+    hwaddr addr;
+    CmdUPIU cmd;
+    UfsRequest *req;
+	
+    while (!(ufs_trl_empty(trl) || QTAILQ_EMPTY(&trl->req_list))) {				//while loop		aran-lq
+
+        addr = trl->dma_addr + trl->head * n->trle_size;
+        ufs_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
+
+        req = QTAILQ_FIRST(&trl->req_list);
+        QTAILQ_REMOVE(&trl->req_list, req, entry);
+        req->aiocb = NULL;
+        req->cmd_opcode = cmd.opcode;
+		status=ufs_io_cmd(n, &cmd, req);
+        if (status != UFS_NO_COMPLETE) {
+            req->status = status;
+            ufs_enqueue_req_completion(trl, req);
+        }
+    ufs_update_trl_slot(trl);													//clear the slot		aran-lq
+	}
+
+    if (!ufs_trl_empty(trl)) {
+        timer_mod(trl->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
+    }
 
 }
 
