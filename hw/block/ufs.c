@@ -1,11 +1,18 @@
+/*
+ * UFS HOST Controller
+ *
+ * Copyright (c) 2017, CQU Lab 611
+ *
+ * Written by Aran-lq <liqi9281@gmail.com>
+ *
+ * This code is licensed under the GNU GPL v2 or later.
+ */
 
 #include <block/block_int.h>
 #include <block/qapi.h>
 #include <exec/memory.h>
 #include <hw/block/block.h>
 #include <hw/hw.h>
-//#include <hw/pci/msix.h>
-//#include <hw/pci/msi.h>
 #include <hw/pci/pci.h>
 #include <qapi/visitor.h>
 #include <qemu/bitops.h>
@@ -142,6 +149,7 @@ static uint16_t lnvm_rw(UfsCtrl *n, UfsLun *ns, CmdUPIU *cmd,
 static uint16_t ufs_rw(UfsCtrl *n, UfsLun *ns, CmdUPIU *cmd,
 						UfsRequest *req)
 {
+	printf("ufs read or write subprocess\n");
 	UfsRwCmd *rw = (UfsRwCmd *)cmd;
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
     uint64_t prp1 = le64_to_cpu(rw->prp1);
@@ -219,7 +227,7 @@ static void ufs_enqueue_req_completion(TransReqList *trl, UfsRequest *req)
 
 static void ufs_process_tml(void *opaque)
 {
-	printf("nvme process submission queue\n");
+	printf("ufs process task management request list\n");
     TaskManageList *tml = opaque;
     UfsCtrl *n = tml->ctrl;
     uint16_t status;
@@ -252,7 +260,7 @@ static void ufs_process_tml(void *opaque)
 
 static void ufs_process_trl(void *opaque)
 {
-	printf("nvme process submission queue\n");
+	printf("ufs process transfer request list\n");
     TransReqList *trl = opaque;
     UfsCtrl *n = trl->ctrl;
     uint16_t status;
@@ -285,6 +293,7 @@ static void ufs_process_trl(void *opaque)
 
 static uint16_t ufs_init_trl(TransReqList *trl, UfsCtrl *n, uint64_t dma_addr)
 {
+	printf("ufs init transfer request list.\n");
     int i;	
     trl->head = trl->tail = 0;
     trl->dma_addr = dma_addr;
@@ -304,6 +313,7 @@ static uint16_t ufs_init_trl(TransReqList *trl, UfsCtrl *n, uint64_t dma_addr)
 
 static uint16_t ufs_init_tml(TaskManageList *tml, UfsCtrl *n, uint64_t dma_addr)
 {
+	printf("ufs init task management list.\n");
 	int i;	
     tml->head = tml->tail = 0;
     tml->dma_addr = dma_addr;
@@ -329,6 +339,7 @@ static void ufs_clear_ctrl(UfsCtrl *n)
 
 static int ufs_start_ctrl(UfsCtrl *n)
    {
+	   printf("ufs start controller.\n");
 	   n->nutrs = 32;
 	   n->nutmrs = 8;
 
@@ -466,12 +477,12 @@ static int lnvm_init_meta(LnvmCtrl *ln)
 	
     ln->metadata = fopen(ln->meta_fname, "w+"); // Open the metadata file
     if (!ln->metadata) {
-        error_report("nvme: lnvm_init_meta: fopen(%s)\n", ln->meta_fname);
+        error_report("ufs: lnvm_init_meta: fopen(%s)\n", ln->meta_fname);
         return -EEXIST;
     }
 	
     if (fstat(fileno(ln->metadata), &buf)) {
-        error_report("nvme: lnvm_init_meta: fstat(%s)\n", ln->meta_fname);
+        error_report("ufs: lnvm_init_meta: fstat(%s)\n", ln->meta_fname);
         return -1;
     }
 	
@@ -482,13 +493,13 @@ static int lnvm_init_meta(LnvmCtrl *ln)
     // Create meta-data file when it is empty or invalid
     //
     if (ftruncate(fileno(ln->metadata), 0)) {
-        error_report("nvme: lnvm_init_meta: ftrunca(%s)\n", ln->meta_fname);
+        error_report("ufs: lnvm_init_meta: ftrunca(%s)\n", ln->meta_fname);
         return -1;
     }
 	
     state = malloc(meta_tbytes);
     if (!state) {
-        error_report("nvme: lnvm_init_meta: malloc f(%s)\n", ln->meta_fname);
+        error_report("ufs: lnvm_init_meta: malloc f(%s)\n", ln->meta_fname);
         return -ENOMEM;
     }
 	
@@ -499,7 +510,7 @@ static int lnvm_init_meta(LnvmCtrl *ln)
     free(state);
 	
     if (res != meta_tbytes) {
-        error_report("nvme: lnvm_init_meta: fwrite(%s), res(%lu)\n",
+        error_report("ufs: lnvm_init_meta: fwrite(%s), res(%lu)\n",
                      ln->meta_fname, res);
         return -1;
     }
@@ -657,13 +668,13 @@ static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-
 	
     ret = lnvm_init_meta(ln);   // Initialize metadata file
     if (ret) {
-        error_report("nvme: lnvm_init_meta: failed\n");
+        error_report("ufs: lnvm_init_meta: failed\n");
         return ret;
     }
 	
     ret = (n->lnvm_ctrl.read_l2p_tbl) ? lnvm_read_tbls(n) : 0;
     if (ret) {
-        error_report("nvme: cannot read l2p table\n");
+        error_report("ufs: cannot read l2p table\n");
         return ret;
     }
 	
@@ -713,7 +724,7 @@ static void ufs_init_pci(UfsCtrl *n)
     pci_config_set_prog_interface(pci_conf, 0x2);
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
-    pci_config_set_class(pci_conf, 0x0000);						//change to Zero			aran-lq
+    pci_config_set_class(pci_conf, 0x0000);										//change to Zero			aran-lq
     memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//nvme_mmio_ops  函数注册吗？				aran-lq
         n->reg_size);
     pci_register_bar(&n->parent_obj, 0,
@@ -792,7 +803,7 @@ static Property ufs_props[] = {
 	  DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
 	  DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
 	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 32),
-	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutmrs, 8),
+	  DEFINE_PROP_UINT8("nutmrs", UfsCtrl, nutmrs, 8),
 	  DEFINE_PROP_UINT8("lver", UfsCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
 	  DEFINE_PROP_UINT32("ll2pmode", UfsCtrl, lnvm_ctrl.id_ctrl.dom, 0),
 	  DEFINE_PROP_UINT16("lsec_size", UfsCtrl, lnvm_ctrl.params.sec_size, 4096),
@@ -813,8 +824,6 @@ static Property ufs_props[] = {
 	  DEFINE_PROP_UINT32("ln_err_write", UfsCtrl, lnvm_ctrl.n_err_write, 0),
 	  DEFINE_PROP_UINT8("ldebug", UfsCtrl, lnvm_ctrl.debug, 0),
 	  DEFINE_PROP_UINT8("lstrict", UfsCtrl, lnvm_ctrl.strict, 0),
-      DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
-      DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
  
       DEFINE_PROP_END_OF_LIST(),
 };
