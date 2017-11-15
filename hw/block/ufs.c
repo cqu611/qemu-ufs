@@ -24,16 +24,7 @@
 #include "ufs.h"
 #include "trace.h"
 
-#define NVME_MAX_QS PCI_MSIX_FLAGS_QSIZE
-#define NVME_MAX_QUEUE_ENTRIES  0xffff
-#define NVME_MAX_STRIDE         12
-#define NVME_MAX_NUM_NAMESPACES 256
-#define NVME_MAX_QUEUE_ES       0xf
-#define NVME_MIN_CQUEUE_ES      0x4
-#define NVME_MIN_SQUEUE_ES      0x6
-#define NVME_SPARE_THRESHOLD    20
-#define NVME_TEMPERATURE        0x143
-#define NVME_OP_ABORTED         0xff
+
 
 #define LNVM_MAX_GRPS_PR_IDENT (20)
 #define LNVM_FEAT_EXT_START 64
@@ -348,8 +339,6 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   n->page_bits = page_bits;
 	   n->page_size = 1 << n->page_bits;
 	   n->max_prp_ents = n->page_size / sizeof(uint64_t);
-	   n->cqe_size = 1 << NVME_CC_IOCQES(n->bar.cc);
-	   n->sqe_size = 1 << NVME_CC_IOSQES(n->bar.cc);
 	   */
 	   ufs_init_trl(n->trl, n, n->bar.utrlba);
 	   ufs_init_tml(n->tml, n, n->bar.utmrlba);
@@ -591,7 +580,7 @@ static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-
             return ret;
 	
         /* We devide the address space linearly to be able to fit into the 4KB
-         * sectors that the nvme driver divides the backend file. We do the
+         * sectors that the ufs driver divides the backend file. We do the
          * division in LUNS - BLOCKS - PLANES - PAGES - SECTORS.
          *
          * For example a quad plane configuration is layed out as:
@@ -707,7 +696,7 @@ static void ufs_init_ctrl(UfsCtrl *n)
 	  
 	  printf("ufs init ctrl over \n");
 	  //	   if (lnvm_dev(n))
-//		   NVME_CAP_SET_LNVM(n->bar.cap, 1);
+//		   UFS_CAP_SET_LNVM(n->bar.cap, 1);
 
 	  
 	
@@ -725,7 +714,7 @@ static void ufs_init_pci(UfsCtrl *n)
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
     pci_config_set_class(pci_conf, 0x0000);										//change to Zero			aran-lq
-    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//nvme_mmio_ops  函数注册吗？				aran-lq
+    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//ufs_mmio_ops  register	aran-lq
         n->reg_size);
     pci_register_bar(&n->parent_obj, 0,
         PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
@@ -760,7 +749,7 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
       n->luns = g_malloc0(sizeof(*n->luns));
 
 	   ufs_init_pci(n);
-	   ufs_init_ctrl(n);						//nvmeIdCtrl 的初始化，主要是Controller register CAP的置位和设置等等		  aran-lq
+	   ufs_init_ctrl(n);					
        ufs_init_lun(n);
        if (lnvm_dev(n))
           return lnvm_init(n);				//添加的代码 			aran-lq
