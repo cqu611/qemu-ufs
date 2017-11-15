@@ -776,10 +776,10 @@ static void lnvm_exit(UfsCtrl *n)
         free(ln->bbt_fname);
    if (ln->meta_auto_gen)
        free(ln->meta_fname);
-   fclose(n->lnvm_ctrl.bbt_fp);
-   fclose(n->lnvm_ctrl.metadata);
-   n->lnvm_ctrl.bbt_fp = NULL;
-   n->lnvm_ctrl.metadata = NULL;
+	fclose(n->lnvm_ctrl.bbt_fp);
+	fclose(n->lnvm_ctrl.metadata);
+	n->lnvm_ctrl.bbt_fp = NULL;
+	n->lnvm_ctrl.metadata = NULL;
 }
 
 static void ufs_exit(PCIDevice *pci_dev)			

@@ -713,7 +713,7 @@ typedef struct UfsRequest {
 	uint16_t                status;
 	uint8_t                 cmd_opcode;
 	uint16_t                is_write;
-    BlockAIOCB               *aiocb;
+    BlockAIOCB              *aiocb;
     BlockAcctCookie         acct;
     QEMUSGList              qsg;
     QEMUIOVector            iov;			//qemu io vector		?	aran-lq
