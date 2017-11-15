@@ -10,6 +10,43 @@ enum {
     ALIGNED_UPIU_SIZE       = 512,
 };
 
+typedef struct UfsRwCmd {
+    uint8_t     opcode;
+    uint8_t     flags;
+    uint16_t    cid;
+    uint32_t    nsid;
+    uint64_t    rsvd2;
+    uint64_t    mptr;
+    uint64_t    prp1;
+    uint64_t    prp2;
+    uint64_t    slba;
+    uint16_t    nlb;
+    uint16_t    control;
+    uint32_t    dsmgmt;
+    uint32_t    reftag;
+    uint16_t    apptag;
+    uint16_t    appmask;
+} UfsRwCmd;
+
+
+/*UPIU format spec ufs2.1	not available	aran-lq*/
+typedef struct CmdUPIU {
+    uint8_t     opcode;
+    uint8_t     fuse;
+    uint16_t    cid;
+    uint32_t    lunid;				//LUN ID		aran-lq
+    uint64_t    res1;
+    uint64_t    mptr;
+    uint64_t    prp1;
+    uint64_t    prp2;
+    uint32_t    cdw10;
+    uint32_t    cdw11;
+    uint32_t    cdw12;
+    uint32_t    cdw13;
+    uint32_t    cdw14;
+    uint32_t    cdw15;
+} CmdUPIU;
+
 typedef struct UfsBar {
     /* Host Capabilities */
     uint32_t    cap;
@@ -153,6 +190,11 @@ enum UfsHcsShift {
     HCS_UTPES_SHIFT     = 12,
 };
 
+enum UFsHcs {
+    UFs_CMD_READY         = 1 << HCS_UCRDY_SHIFT,
+	UFs_CMD_FAILED         = 1 << HCS_DP_SHIFT,
+};
+
 enum UfsHcsMask {
     HCS_DP_MASK           = 0x1,
     HCS_UTRLRDY_MASK      = 0x1,
@@ -161,6 +203,8 @@ enum UfsHcsMask {
     HCS_UPMCRS_MASK     = 0x7,
     HCS_UTPES_MASK     = 0xFFFFF,
 };
+
+#define UFS_HCE_EN(cap)  (((cap) >> HCE_HCE_SHIFT)   & HCE_HCE_MASK)
 
 /* UIC Power Mode Change Request Status */
 enum {
@@ -362,6 +406,16 @@ enum uic_cmd_dme {
     UIC_CMD_DME_TEST_MODE       = 0x1A,
 };
 
+typedef struct UfsRangeType {
+    uint8_t     type;
+    uint8_t     attributes;
+    uint8_t     rsvd2[14];
+    uint64_t    slba;
+    uint64_t    nlb;
+    uint8_t     guid[16];
+    uint8_t     rsvd48[16];
+} UfsRangeType;
+
 #define COMMAND_OPCODE_MASK     0xFF
 #define GEN_SELECTOR_INDEX_MASK     0xFFFF
 
@@ -382,6 +436,41 @@ enum uic_cmd_dme {
 #define UIC_ARG_ATTR_TYPE(t)        (((t) & 0xFF) << 16)
 #define UIC_GET_ATTR_ID(v)      (((v) >> 16) & 0xFFFF)
 
+
+enum UfsIoCommands {
+    UFS_CMD_WRITE              = 0x01,
+    UFS_CMD_READ               = 0x02,
+};
+
+enum LnvmAdminCommands {
+    LNVM_ADM_CMD_IDENTITY          = 0xe2,
+    LNVM_ADM_CMD_GET_L2P_TBL       = 0xea,
+    LNVM_ADM_CMD_GET_BB_TBL        = 0xf2,
+    LNVM_ADM_CMD_SET_BB_TBL        = 0xf1,
+};
+
+
+enum LnvmDmCommands {
+    LNVM_CMD_HYBRID_WRITE      = 0x81,
+    LNVM_CMD_HYBRID_READ       = 0x02,
+    LNVM_CMD_PHYS_WRITE        = 0x91,
+    LNVM_CMD_PHYS_READ         = 0x92,
+    LNVM_CMD_ERASE_ASYNC        = 0x90,
+};
+
+enum LnvmMetaState {
+    LNVM_SEC_UNKNOWN = 0x0,
+    LNVM_SEC_WRITTEN = 0xAC,
+    LNVM_SEC_ERASED = 0xDC,
+};
+enum UfsStatusCodes {
+    UFS_SUCCESS                = 0x0000,
+	UFS_INVALID_OPCODE         = 0x0001,
+	UFS_INVALID_FIELD          = 0x0002,
+	UFS_INVALID_LUNID          = 0x000b,
+    UFS_NO_COMPLETE            = 0xffff,
+};
+
 /* UIC Config result code / Generic error code */
 enum {
     UIC_CMD_RESULT_SUCCESS          = 0x00,
@@ -399,6 +488,7 @@ enum {
 };
 
 #define MASK_UIC_COMMAND_RESULT         0xFF
+#define UFS_ID_NS_FLBAS_INDEX(flbas)       ((flbas & 0xf))
 
 /* Interrupt disable masks */
 enum {
@@ -412,6 +502,7 @@ enum {
     /* Interrupt disable mask for UFSHCI v2.1 */
     INTERRUPT_MASK_ALL_VER_21   = 0x71FFF,
 };
+
 
 /*
  * Request Descriptor Definitions
@@ -431,6 +522,21 @@ typedef struct request_desc_header{
     uint32_t dword_3;
 }request_desc_header;
 
+typedef struct SegEntry{
+    uint32_t base_addr;
+    uint32_t upper_addr;
+    uint32_t reserved;
+    uint32_t size;
+}SegEntry;
+
+/* UFS Command Descriptor structure */
+typedef struct UtpTransferCmdDesc{
+    uint8_t command_upiu[ALIGNED_UPIU_SIZE];
+    uint8_t response_upiu[ALIGNED_UPIU_SIZE];
+    struct SegEntry prd_table[128];
+}UtpTransferCmdDesc;
+
+/* UFS Tramsfer Request Descriptor structure */
 typedef struct UtpTransferReqDesc {
 
     /* DW 0-3 */
@@ -448,6 +554,58 @@ typedef struct UtpTransferReqDesc {
     uint16_t  prd_table_length;
     uint16_t  prd_table_offset;
 }UtpTransferReqDesc;
+
+  /* UTP Task Request Descriptor */
+typedef struct UtpTaskReqDesc {
+
+    /* DW 0-3 */
+    struct request_desc_header header;
+
+    /* DW 4-11 */
+    uint32_t task_req_upiu[TASK_REQ_UPIU_SIZE_DWORDS];
+
+    /* DW 12-19 */
+    uint32_t task_rsp_upiu[TASK_RSP_UPIU_SIZE_DWORDS];
+}UtpTaskReqDesc;
+
+typedef struct UfsLBAF {
+    uint16_t    ms;
+    uint8_t     ds;
+    uint8_t     rp;
+} UfsLBAF;
+
+typedef struct NUfsIdNs {
+    uint64_t    nsze;
+    uint64_t    ncap;
+    uint64_t    nuse;
+    uint8_t     nsfeat;
+    uint8_t     nlbaf;
+    uint8_t     flbas;
+    uint8_t     mc;
+    uint8_t     dpc;
+    uint8_t     dps;
+    uint8_t     res30[98];
+    UfsLBAF    lbaf[16];
+    uint8_t     res192[192];
+    uint8_t     vs[3712];
+} UfsIdNs;
+
+typedef struct UfsLun {
+    struct UfsCtrl *ctrl;
+	UfsIdNs        id_ns;
+    UfsRangeType    lba_range[64];
+    unsigned long   *util;
+    unsigned long   *uncorrectable;
+    uint32_t        id;
+    uint64_t        ns_blks;
+    uint64_t        start_block;
+    uint64_t        meta_start_offset;
+    uint64_t        tbl_dsk_start_offset;
+    uint32_t        tbl_entries;
+    uint64_t        *tbl;
+    uint8_t         *bbtbl;
+} UfsLun;
+
 
 typedef struct LnvmIdAddrFormat {	//Ch--Lun--Pln--Blk--Pg--Sect			aran-lq
     uint8_t  ch_offset;
@@ -473,12 +631,12 @@ typedef struct LnvmAddrF {				//Ch--Lun--Pln--Blk--Pg--Sect		aran-lq
 	uint64_t	blk_mask;
 	uint64_t	pg_mask;
 	uint64_t	sec_mask;
-	uint8_t	ch_offset;
-	uint8_t	lun_offset;
-	uint8_t	pln_offset;
-	uint8_t	blk_offset;
-	uint8_t	pg_offset;
-	uint8_t	sec_offset;
+	uint8_t	   ch_offset;
+	uint8_t	   lun_offset;
+	uint8_t	   pln_offset;
+	uint8_t	   blk_offset;
+	uint8_t	   pg_offset;
+	uint8_t	   sec_offset;
 } LnvmAddrF;
 
 typedef struct LnvmIdGroup {
@@ -509,7 +667,7 @@ typedef struct LnvmIdGroup {
 
 typedef struct LnvmIdCtrl {					//lightnvm controller identification info, global parameters 	aran-lq
     uint8_t       ver_id;
-    uint8_t       vmnt;	
+    uint8_t       vmnt;	                    //Vendor Opcode     aran-lq
     uint8_t       cgrps;
     uint8_t       res;
     uint32_t      cap;
@@ -546,26 +704,63 @@ typedef struct LnvmParams {
     uint32_t    total_units;
 } QEMU_PACKED LnvmParams;
 
+typedef struct UfsRequest {
+    struct TransReqList       *rl;
+	struct TaskManageList     *ml;
+    struct UfsLun		      *lun;
+	uint64_t                slba;
+	uint16_t                nlb;
+	uint16_t                status;
+	uint8_t                 cmd_opcode;
+	uint16_t                is_write;
+    BlockAIOCB              *aiocb;
+    BlockAcctCookie         acct;
+    QEMUSGList              qsg;
+    QEMUIOVector            iov;			//qemu io vector		?	aran-lq
+    QTAILQ_ENTRY(UfsRequest)entry;
+} UfsRequest;
 
-typedef struct UtpTaskReqDesc {
+typedef struct TransReqList {				
+	UtpTaskReqDesc *utmrdl_base_addr;  
+	uint8_t     nutrs;  				//num of transfer request	aran-lq
+	uint8_t     cmd_opcode;
+	struct UfsCtrl *ctrl;
+    uint64_t    dma_addr;
+    uint64_t    completed;
+	uint32_t    size;
+	uint32_t    head;
+    uint32_t    tail;
+    QEMUTimer   *timer;
+    UfsRequest *io_req;
+    QTAILQ_HEAD(trans_req_list, UfsRequest) req_list;
+    QTAILQ_ENTRY(UfsRequest) entry;
 
-    /* DW 0-3 */
-    struct request_desc_header header;
+}TransReqList;
 
-    /* DW 4-11 */
-   // __le32 task_req_upiu[TASK_REQ_UPIU_SIZE_DWORDS];
+typedef struct TaskManageList {		
+	UtpTaskReqDesc *utmrdl_base_addr;  
+	uint8_t     nutmrs;  				//num of task management request	aran-lq
+	struct UfsCtrl *ctrl;
+    uint64_t    dma_addr;
+    uint64_t    completed;
+	uint32_t    size;
+	uint32_t    head;
+    uint32_t    tail;
+    QEMUTimer   *timer;
+    UfsRequest *io_req;
+    QTAILQ_HEAD(tm_req_list, UfsRequest) req_list;
+    QTAILQ_ENTRY(UfsRequest) entry;
 
-    /* DW 12-19 */
-   // __le32 task_rsp_upiu[TASK_RSP_UPIU_SIZE_DWORDS];
-}UtpTaskReqDesc;
+}TaskManageList;
 
-#define TYPE_UFS "ufs"
+
+#define TYPE_UFS "ufshcd"
 #define UFS(obj) \
         OBJECT_CHECK(UfsCtrl, (obj), TYPE_UFS)
 
 typedef struct LnvmCtrl {				
-	LnvmParams     params;				
-    LnvmIdCtrl     id_ctrl;				
+	LnvmParams     params;
+    LnvmIdCtrl     id_ctrl;
     LnvmAddrF      ppaf;
     uint8_t        read_l2p_tbl;
     uint8_t        bbt_gen_freq;
@@ -580,7 +775,7 @@ typedef struct LnvmCtrl {
     uint32_t       n_err_write;
     uint32_t       err_write_cnt;
     FILE           *metadata;
-    uint8_t        int_meta_size;
+    uint8_t        int_meta_size; 
 }LnvmCtrl;
 
 			
@@ -596,64 +791,37 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     uint16_t    temperature;
     uint16_t    page_size;
     uint16_t    page_bits;
-    uint16_t    max_prp_ents;
-    uint16_t    cqe_size;
-    uint16_t    sqe_size;
-    uint16_t    oacs;
-    uint16_t    oncs;
     uint32_t    reg_size;
-    uint32_t    num_namespaces;			//num of namespaces		aran-lq
-    uint32_t    num_queues;
-    uint32_t    max_q_ents;
-    uint64_t    ns_size;
-    uint8_t     db_stride;
-    uint8_t     aerl;
-    uint8_t     acl;
-    uint8_t     elpe;
-    uint8_t     elp_index;
-    uint8_t     error_count;
-    uint8_t     mdts;
-    uint8_t     cqr;
-    uint8_t     max_sqes;
-    uint8_t     max_cqes;
+	uint16_t    trle_size;				//transfer request list entry size				aran-lq
+	uint16_t    tmle_size;				//task management request list entry size		aran-lq
+	uint64_t    ns_size;
+    uint32_t    num_luns;			    //num of luns		aran-lq
+    uint64_t    lun_size;
+    uint8_t     nutrs;                  //Number of UTP Transfer Request Slots  aran-lq
+    uint8_t     nutmrs;                 //Number of UTP Task Management Request Slots  aran-lq
+    uint32_t    ver;					//version	aran-lq
     uint8_t     meta;
-    uint8_t     vwc;
-    uint8_t     mc;
-    uint8_t     dpc;
-    uint8_t     dps;
-    uint8_t     nlbaf;
-    uint8_t     extended;
-    uint8_t     lba_index;
-    uint8_t     mpsmin;
-    uint8_t     mpsmax;
-    uint8_t     intc;
-    uint8_t     intc_thresh;
-    uint8_t     intc_time;
-    uint8_t     outstanding_aers;
-    uint8_t     temp_warn_issued;
-    uint8_t     num_errors;
-    uint8_t     cqes_pending;
-    uint16_t    vid;
-    uint16_t    did;
-    uint32_t    cmbsz;
-    uint32_t    cmbloc;
-    uint8_t     *cmbuf;
+    uint16_t    vid; 					//vendor ID 	aran-lq
+    uint16_t    did;					//device ID		aran-lq
 
-    char            *serial;
-
-    QSIMPLEQ_HEAD(aer_queue, NvmeAsyncEvent) aer_queue;
+    char        *serial;
     QEMUTimer   *aer_timer;
     uint8_t     aer_mask;
+    UfsLun      *luns;
+	TransReqList *trl;					//Transfer request List		aran-lq
+	TaskManageList *tml;				//Task management list		aran-lq
+    UtpTaskReqDesc *utmrdl_base_addr;        //指向task list的基地址   aran-lq
+    UtpTransferReqDesc *utrdl_base_addr;     //指向transfer request 的基地址   aran-lq
+    UtpTransferCmdDesc *ucdl_base_addr;		 //pointer of utp command desriptor		aran-lq
 
     LnvmCtrl     lnvm_ctrl;			//lnvm controller		aran-lq
 } UfsCtrl;
 
 
 
-static void lnvm_exit(UfsCtrl *n)__attribute__ ((unused));
 
-static void ufs_init_pci(UfsCtrl *n)__attribute__ ((unused));
-static void ufs_init_ctrl(UfsCtrl *n)__attribute__ ((unused));
+//static void ufs_init_pci(UfsCtrl *n)__attribute__ ((unused));
+//static void ufs_init_ctrl(UfsCtrl *n)__attribute__ ((unused));
 static int lnvm_init(UfsCtrl *n)__attribute__ ((unused));
 static int lnvm_init_meta(LnvmCtrl *n)__attribute__ ((unused));
 static void lnvm_init_id_ctrl(LnvmCtrl *n)__attribute__ ((unused));

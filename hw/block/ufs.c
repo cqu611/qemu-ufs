@@ -1,11 +1,18 @@
+/*
+ * UFS HOST Controller
+ *
+ * Copyright (c) 2017, CQU Lab 611
+ *
+ * Written by Aran-lq <liqi9281@gmail.com>
+ *
+ * This code is licensed under the GNU GPL v2 or later.
+ */
 
 #include <block/block_int.h>
 #include <block/qapi.h>
 #include <exec/memory.h>
 #include <hw/block/block.h>
 #include <hw/hw.h>
-#include <hw/pci/msix.h>
-#include <hw/pci/msi.h>
 #include <hw/pci/pci.h>
 #include <qapi/visitor.h>
 #include <qemu/bitops.h>
@@ -17,16 +24,7 @@
 #include "ufs.h"
 #include "trace.h"
 
-#define NVME_MAX_QS PCI_MSIX_FLAGS_QSIZE
-#define NVME_MAX_QUEUE_ENTRIES  0xffff
-#define NVME_MAX_STRIDE         12
-#define NVME_MAX_NUM_NAMESPACES 256
-#define NVME_MAX_QUEUE_ES       0xf
-#define NVME_MIN_CQUEUE_ES      0x4
-#define NVME_MIN_SQUEUE_ES      0x6
-#define NVME_SPARE_THRESHOLD    20
-#define NVME_TEMPERATURE        0x143
-#define NVME_OP_ABORTED         0xff
+
 
 #define LNVM_MAX_GRPS_PR_IDENT (20)
 #define LNVM_FEAT_EXT_START 64
@@ -34,274 +32,367 @@
 #define LNVM_PBA_UNMAPPED UINT64_MAX
 #define LNVM_LBA_UNMAPPED UINT64_MAX
 
-//         status = sq->sqid ? nvme_io_cmd(n, &cmd, req) :
-//             nvme_admin_cmd(n, &cmd, req);		//通过sqid的值，判断是io命令还是管理命令					aran-lq
-//         if (status != NVME_NO_COMPLETE) {
-//             req->status = status;
-//             nvme_enqueue_req_completion(cq, req);
-//         }
-//     }
-//     nvme_update_sq_eventidx(sq);
-//     nvme_update_sq_tail(sq);
-// 
-//     sq->completed += processed;
-//     if (!nvme_sq_empty(sq)) {
-//         timer_mod(sq->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
-//     }
-// }
-// 
-// static void nvme_clear_ctrl(NvmeCtrl *n)
-// {
-//     NvmeAsyncEvent *event;
-//     int i;
-// 
-//     for (i = 0; i < n->num_queues; i++) {
-//         if (n->sq[i] != NULL) {
-//             nvme_free_sq(n->sq[i], n);
-//         }
-//     }
-//     for (i = 0; i < n->num_queues; i++) {
-//         if (n->cq[i] != NULL) {
-//             nvme_free_cq(n->cq[i], n);
-//         }
-//     }
-//     if (n->aer_timer) {
-//         timer_del(n->aer_timer);
-//         timer_free(n->aer_timer);
-//         n->aer_timer = NULL;
-//     }
-//     while ((event = QSIMPLEQ_FIRST(&n->aer_queue)) != NULL) {
-//         QSIMPLEQ_REMOVE_HEAD(&n->aer_queue, entry);
-//         g_free(event);
-//     }
-// 
-//     blk_flush(n->conf.blk);
-//     if (lnvm_hybrid_dev(n))
-//         lnvm_flush_tbls(n);
-//     n->bar.cc = 0;
-//     n->features.temp_thresh = 0x14d;
-//     n->temp_warn_issued = 0;
-//     n->outstanding_aers = 0;
-// }
-// 
-// static int nvme_start_ctrl(NvmeCtrl *n)
-// {
-//     uint32_t page_bits = NVME_CC_MPS(n->bar.cc) + 12;
-//     uint32_t page_size = 1 << page_bits;
-// 
-//     if (n->cq[0] || n->sq[0] || !n->bar.asq || !n->bar.acq ||
-//             n->bar.asq & (page_size - 1) || n->bar.acq & (page_size - 1) ||
-//             NVME_CC_MPS(n->bar.cc) < NVME_CAP_MPSMIN(n->bar.cap) ||
-//             NVME_CC_MPS(n->bar.cc) > NVME_CAP_MPSMAX(n->bar.cap) ||
-//             NVME_CC_IOCQES(n->bar.cc) < NVME_CTRL_CQES_MIN(n->id_ctrl.cqes) ||
-//             NVME_CC_IOCQES(n->bar.cc) > NVME_CTRL_CQES_MAX(n->id_ctrl.cqes) ||
-//             NVME_CC_IOSQES(n->bar.cc) < NVME_CTRL_SQES_MIN(n->id_ctrl.sqes) ||
-//             NVME_CC_IOSQES(n->bar.cc) > NVME_CTRL_SQES_MAX(n->id_ctrl.sqes) ||
-//             !NVME_AQA_ASQS(n->bar.aqa) || NVME_AQA_ASQS(n->bar.aqa) > 4095 ||
-//             !NVME_AQA_ACQS(n->bar.aqa) || NVME_AQA_ACQS(n->bar.aqa) > 4095) {
-//         return -1;
-//     }
-// 
-//     n->page_bits = page_bits;
-//     n->page_size = 1 << n->page_bits;
-//     n->max_prp_ents = n->page_size / sizeof(uint64_t);
-//     n->cqe_size = 1 << NVME_CC_IOCQES(n->bar.cc);
-//     n->sqe_size = 1 << NVME_CC_IOSQES(n->bar.cc);
-// 
-//     nvme_init_cq(&n->admin_cq, n, n->bar.acq, 0, 0,
-//             NVME_AQA_ACQS(n->bar.aqa) + 1, 1, 1);
-//     nvme_init_sq(&n->admin_sq, n, n->bar.asq, 0, 0,
-//             NVME_AQA_ASQS(n->bar.aqa) + 1, NVME_Q_PRIO_HIGH, 1);
-// 
-//     n->aer_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nvme_aer_process_cb, n);
-//     QSIMPLEQ_INIT(&n->aer_queue);
-//     return 0;
-// }
 
-static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
+
+static void ufs_addr_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
 {
- //   switch (offset) {
- //   case 0xc:
- //       n->bar.intms |= data & 0xffffffff;
- //       n->bar.intmc = n->bar.intms;
- //       break;
- //   case 0x10:
- //       n->bar.intms &= ~(data & 0xffffffff);
- //       n->bar.intmc = n->bar.intms;
- //       break;
- //   case 0x14:		//第14个寄存器 	 CC controller configuration		aran-lq
- //       if (NVME_CC_EN(data) && !NVME_CC_EN(n->bar.cc)) {
- //           n->bar.cc = data;
- //           if (nvme_start_ctrl(n)) {
- //               n->bar.csts = NVME_CSTS_FAILED;
- //           } else {
- //               n->bar.csts = NVME_CSTS_READY;
- //           }
- //       } else if (!NVME_CC_EN(data) && NVME_CC_EN(n->bar.cc)) {
- //           nvme_clear_ctrl(n);
- //           n->bar.csts &= ~NVME_CSTS_READY;
- //       }
- //       if (NVME_CC_SHN(data) && !(NVME_CC_SHN(n->bar.cc))) {
- //               nvme_clear_ctrl(n);
- //               n->bar.cc = data;
- //               n->bar.csts |= NVME_CSTS_SHST_COMPLETE;
- //       } else if (!NVME_CC_SHN(data) && NVME_CC_SHN(n->bar.cc)) {
- //               n->bar.csts &= ~NVME_CSTS_SHST_COMPLETE;
- //               n->bar.cc = data;
- //       }
- //       break;
- //   case 0x24:
- //       n->bar.aqa = data & 0xffffffff;
- //       break;
- //   case 0x28:
- //       n->bar.asq = data;
- //       break;
- //   case 0x2c:
- //       n->bar.asq |= data << 32;
- //       break;
- //   case 0x30:
- //       n->bar.acq = data;
- //       break;
- //   case 0x34:
- //       n->bar.acq |= data << 32;
- //       break;
- //   default:
- //       break;
- //   }
+        pci_dma_read(&n->parent_obj, addr, buf, size);
+    
 }
 
-static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
+static void ufs_update_trl_slot(const TransReqList *trl)
 {
-//    NvmeCtrl *n = (NvmeCtrl *)opaque;
-//    uint8_t *ptr = (uint8_t *)&n->bar;
-//    uint64_t val = 0;
-//
-//    if (addr < sizeof(n->bar)) {
-//        memcpy(&val, ptr + addr, size);
-//    }
-//
-//    trace_nvme_mmio_read(addr, size, val);
-//
-//    return val;
+	
+}
+
+static void ufs_update_tml_slot(const TaskManageList *tml)
+{
+	
+}
+
+static uint8_t ufs_tml_empty(TaskManageList *tml)
+{
+    return tml->head == tml->tail;
+}
+
+
+static uint8_t ufs_trl_empty(TransReqList *trl)
+{
+    return trl->head == trl->tail;
+}
+
+static uint32_t lnvm_tbl_size(UfsLun *ns)
+{
+	return ns->tbl_entries * sizeof(*(ns->tbl));
+}
+
+
+
+static uint8_t lnvm_dev(UfsCtrl *n)
+{
+    return (n->lnvm_ctrl.id_ctrl.ver_id != 0);
+}
+
+static int lnvm_bbt_load(UfsLun *ns, uint32_t nr_blocks,
+						 uint32_t offset, uint8_t *blks)
+{
+    struct LnvmCtrl *ln = &ns->ctrl->lnvm_ctrl;
+    FILE *fp;
+    size_t ret;
+
+    if (!ln->bbt_fname)
+        return 0;
+
+    fp = fopen(ln->bbt_fname, "r");
+    if (!fp) {
+        memcpy(blks, ns->bbtbl, nr_blocks);
+        return 0;
+    }
+
+    if (fseek(fp, offset, SEEK_SET)) {
+        printf("Could not read bb file\n");
+        return -1;
+    }
+
+    ret = fread(blks, 1, nr_blocks, fp);
+    if (ret != nr_blocks) {
+        printf("Could not read bb file\n");
+        return -1;
+    }
+
+    fclose(fp);
     return 0;
 }
 
-// static void nvme_process_db(NvmeCtrl *n, hwaddr addr, int val)
-// {
-//     uint32_t qid;
-//     uint16_t new_val = val & 0xffff;
-//     NvmeSQueue *sq;
-// 
-//     if (addr & ((1 << (2 + n->db_stride)) - 1)) {
-//         nvme_enqueue_event(n, NVME_AER_TYPE_ERROR,
-//             NVME_AER_INFO_ERR_INVALID_DB, NVME_LOG_ERROR_INFO);
-//         return;
-//     }
-// 
-//     if (((addr - 0x1000) >> (2 + n->db_stride)) & 1) {
-//         NvmeCQueue *cq;
-//         bool start_sqs;
-// 
-//         qid = (addr - (0x1000 + (1 << (2 + n->db_stride)))) >>
-//             (3 + n->db_stride);
-//         if (nvme_check_cqid(n, qid)) {
-//             nvme_enqueue_event(n, NVME_AER_TYPE_ERROR,
-//                 NVME_AER_INFO_ERR_INVALID_DB, NVME_LOG_ERROR_INFO);
-//             return;
-//         }
-// 
-//         cq = n->cq[qid];
-//         if (new_val >= cq->size) {
-//             nvme_enqueue_event(n, NVME_AER_TYPE_ERROR,
-//                 NVME_AER_INFO_ERR_INVALID_DB, NVME_LOG_ERROR_INFO);
-//             return;
-//         }
-// 
-//         start_sqs = nvme_cq_full(cq) ? true : false;
-// 
-//         /* When the mapped pointer memory area is setup, we don't rely on
-//          * the MMIO written values to update the head pointer. */
-//         if (!cq->db_addr) {
-//             cq->head = new_val;
-//         }
-//         if (start_sqs) {
-//             NvmeSQueue *sq;
-//             QTAILQ_FOREACH(sq, &cq->sq_list, entry) {
-//                 if (!timer_pending(sq->timer)) {
-//                     timer_mod(sq->timer, qemu_clock_get_ns(
-//                                             QEMU_CLOCK_VIRTUAL) + 500);
-//                 }
-//             }
-//             nvme_post_cqes(cq);
-//         } else if (cq->tail != cq->head) {
-//             nvme_isr_notify(cq);
-//         }
-//     } else {
-//         qid = (addr - 0x1000) >> (3 + n->db_stride);
-//         if (nvme_check_sqid(n, qid)) {
-//             nvme_enqueue_event(n, NVME_AER_TYPE_ERROR,
-//                 NVME_AER_INFO_ERR_INVALID_SQ, NVME_LOG_ERROR_INFO);
-//             return;
-//         }
-//         sq = n->sq[qid];
-//         if (new_val >= sq->size) {
-//             nvme_enqueue_event(n, NVME_AER_TYPE_ERROR,
-//                 NVME_AER_INFO_ERR_INVALID_DB, NVME_LOG_ERROR_INFO);
-//             return;
-//         }
-// 
-//         /* When the mapped pointer memory area is setup, we don't rely on
-//          * the MMIO written values to update the tail pointer. */
-//         if (!sq->db_addr) {
-//             sq->tail = new_val;
-//         }
-//         if (!timer_pending(sq->timer)) {
-//             timer_mod(sq->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
-//         }
-//     }
-//}
+static int lnvm_read_tbls(UfsCtrl *n)
+{
+    uint32_t i;
+
+    for (i = 0; i < n->num_luns; i++) {
+        UfsLun *ns = &n->luns[i];
+        uint32_t tbl_size = lnvm_tbl_size(ns);
+        if (blk_pread(n->conf.blk, ns->tbl_dsk_start_offset,
+					  ns->tbl, tbl_size) != tbl_size) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+static void ufs_rw_cb(void *opaque, int ret)
+{
+	
+}
+
+static uint16_t ufs_map_prp(QEMUSGList *qsg, QEMUIOVector *iov,
+                             uint64_t prp1, uint64_t prp2, uint32_t len, UfsCtrl *n)
+{
+	return 0;
+
+}
+
+static uint16_t lnvm_rw(UfsCtrl *n, UfsLun *ns, CmdUPIU *cmd,
+						UfsRequest *req)
+{
+	return 0;
+}
+	
+static uint16_t ufs_rw(UfsCtrl *n, UfsLun *ns, CmdUPIU *cmd,
+						UfsRequest *req)
+{
+	printf("ufs read or write subprocess\n");
+	UfsRwCmd *rw = (UfsRwCmd *)cmd;
+    uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
+    uint64_t prp1 = le64_to_cpu(rw->prp1);
+    uint64_t prp2 = le64_to_cpu(rw->prp2);
+    uint64_t slba;
+    const uint8_t lba_index = UFS_ID_NS_FLBAS_INDEX(ns->id_ns.flbas);
+    const uint8_t data_shift = ns->id_ns.lbaf[lba_index].ds;
+    uint64_t data_size = nlb << data_shift;
+    uint64_t aio_slba;
+	
+    slba = le64_to_cpu(rw->slba);
+    req->is_write = rw->opcode == UFS_CMD_WRITE;
+    aio_slba = ns->start_block + (slba << (data_shift - BDRV_SECTOR_BITS));
+	
+    if (ufs_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n)) {
+
+        return UFS_INVALID_FIELD;
+    }
+	
+    req->slba = slba;
+    req->status = UFS_SUCCESS;
+    req->nlb = nlb;
+    req->lun = ns;
+	
+    dma_acct_start(n->conf.blk, &req->acct, &req->qsg, req->is_write ?
+				BLOCK_ACCT_WRITE : BLOCK_ACCT_READ);
+  
+   req->aiocb = req->is_write ?
+				dma_blk_write(n->conf.blk, &req->qsg, aio_slba, ufs_rw_cb, req) :
+				dma_blk_read(n->conf.blk, &req->qsg, aio_slba, ufs_rw_cb, req);
+
+    return UFS_NO_COMPLETE;
+    return 0;
+}
+
+
+static uint16_t ufs_tm_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
+{
+	return 0;
+}
+
+static uint16_t ufs_io_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
+{
+	printf("This is a io command.\n");
+    UfsLun *luns;
+    uint32_t lunid = le32_to_cpu(cmd->lunid);
+	
+    if (lunid == 0 || lunid > n->num_luns) {			//LUN ID num limit		aran-lq
+        return UFS_INVALID_LUNID;
+    }
+	
+    luns = &n->luns[lunid - 1];
+    switch (cmd->opcode) {
+		case LNVM_CMD_HYBRID_WRITE:
+		case LNVM_CMD_PHYS_READ:
+		case LNVM_CMD_PHYS_WRITE:
+			return lnvm_rw(n, luns, cmd, req);
+		case UFS_CMD_READ:
+		case UFS_CMD_WRITE:
+			return ufs_rw(n, luns, cmd, req);
+		default:
+			return UFS_INVALID_OPCODE;
+    }
+}
+
+static void ufs_tm_req_completion(TaskManageList *trl, UfsRequest *req)
+{
+	
+}
+
+static void ufs_enqueue_req_completion(TransReqList *trl, UfsRequest *req)
+{
+	
+}
+
+static void ufs_process_tml(void *opaque)
+{
+	printf("ufs process task management request list\n");
+    TaskManageList *tml = opaque;
+    UfsCtrl *n = tml->ctrl;
+    uint16_t status;
+    hwaddr addr;
+    CmdUPIU cmd;
+    UfsRequest *req;
+	
+    while (!(ufs_tml_empty(tml) || QTAILQ_EMPTY(&tml->req_list))) {				//while loop		aran-lq
+	
+        addr = tml->dma_addr + tml->head * n->tmle_size;
+        ufs_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
+	
+        req = QTAILQ_FIRST(&tml->req_list);
+        QTAILQ_REMOVE(&tml->req_list, req, entry);
+        req->aiocb = NULL;
+        req->cmd_opcode = cmd.opcode;
+		status=ufs_tm_cmd(n, &cmd, req);
+        if (status != UFS_NO_COMPLETE) {
+            req->status = status;
+            ufs_tm_req_completion(tml, req);
+        }
+		ufs_update_tml_slot(tml);													//clear the slot		aran-lq
+	}
+	
+    if (!ufs_tml_empty(tml)) {
+        timer_mod(tml->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
+    }
+
+}
+
+static void ufs_process_trl(void *opaque)
+{
+	printf("ufs process transfer request list\n");
+    TransReqList *trl = opaque;
+    UfsCtrl *n = trl->ctrl;
+    uint16_t status;
+    hwaddr addr;
+    CmdUPIU cmd;
+    UfsRequest *req;
+	
+    while (!(ufs_trl_empty(trl) || QTAILQ_EMPTY(&trl->req_list))) {				//while loop		aran-lq
+
+        addr = trl->dma_addr + trl->head * n->trle_size;
+        ufs_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
+
+        req = QTAILQ_FIRST(&trl->req_list);
+        QTAILQ_REMOVE(&trl->req_list, req, entry);
+        req->aiocb = NULL;
+        req->cmd_opcode = cmd.opcode;
+		status=ufs_io_cmd(n, &cmd, req);
+        if (status != UFS_NO_COMPLETE) {
+            req->status = status;
+            ufs_enqueue_req_completion(trl, req);
+        }
+    ufs_update_trl_slot(trl);													//clear the slot		aran-lq
+	}
+
+    if (!ufs_trl_empty(trl)) {
+        timer_mod(trl->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500);
+    }
+
+}
+
+static uint16_t ufs_init_trl(TransReqList *trl, UfsCtrl *n, uint64_t dma_addr)
+{
+	printf("ufs init transfer request list.\n");
+    int i;	
+    trl->head = trl->tail = 0;
+    trl->dma_addr = dma_addr;
+	//malloc memory for trl		aran-lq
+    trl->io_req = g_malloc0(trl->size * sizeof(*trl->io_req));
+    QTAILQ_INIT(&trl->req_list);
+	//insert in the queue		aran-lq
+    for (i = 0; i < trl->size; i++) {
+        trl->io_req[i].rl = trl;
+        QTAILQ_INSERT_TAIL(&(trl->req_list), &trl->io_req[i], entry);
+    }
+	
+    trl->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ufs_process_trl, trl);
+
+	return 0;
+}
+
+static uint16_t ufs_init_tml(TaskManageList *tml, UfsCtrl *n, uint64_t dma_addr)
+{
+	printf("ufs init task management list.\n");
+	int i;	
+    tml->head = tml->tail = 0;
+    tml->dma_addr = dma_addr;
+	//malloc memory for trl		aran-lq
+    tml->io_req = g_malloc0(tml->size * sizeof(*tml->io_req));
+    QTAILQ_INIT(&tml->req_list);
+	//insert in the queue		aran-lq
+    for (i = 0; i < tml->size; i++) {
+        tml->io_req[i].ml = tml;
+        QTAILQ_INSERT_TAIL(&(tml->req_list), &tml->io_req[i], entry);
+    }
+	
+    tml->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ufs_process_tml, tml);
+
+	return 0;
+}
+
+static void ufs_clear_ctrl(UfsCtrl *n)
+   {
+
+   }
+   
+
+static int ufs_start_ctrl(UfsCtrl *n)
+   {
+	   printf("ufs start controller.\n");
+	   n->nutrs = 32;
+	   n->nutmrs = 8;
+
+	   
+	   /*  some para init		aran-lq
+	   n->page_bits = page_bits;
+	   n->page_size = 1 << n->page_bits;
+	   n->max_prp_ents = n->page_size / sizeof(uint64_t);
+	   */
+	   ufs_init_trl(n->trl, n, n->bar.utrlba);
+	   ufs_init_tml(n->tml, n, n->bar.utmrlba);
+	   return 0;
+   }
+ 
+
+static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
+{
+	printf("ufs write bar.\n");
+    switch (offset) {
+		case 0x34:
+			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
+			n->bar.hce = data;
+			if(ufs_start_ctrl(n)){
+				n->bar.hcs = UFs_CMD_READY;
+			}else {
+				n->bar.hcs = UFs_CMD_FAILED;
+			}
+			}
+		
+		default:
+				break;
+	}
+}
+
+static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
+{	   
+	 printf("ufs mmio read.\n");
+     UfsCtrl *n = (UfsCtrl *)opaque;
+     uint8_t *ptr = (uint8_t *)&n->bar;
+     uint64_t val = 0;
+
+     if (addr < sizeof(n->bar)) {
+          memcpy(&val, ptr + addr, size);
+      }
+ 
+      trace_nvme_mmio_read(addr, size, val);
+
+	return val;
+    return 0;
+}
+
 
 static void ufs_mmio_write(void *opaque, hwaddr addr, uint64_t data,
     unsigned size)
 {
- //   NvmeCtrl *n = (NvmeCtrl *)opaque;
- //   if (addr < sizeof(n->bar)) {
- //       nvme_write_bar(n, addr, data, size);
- //   } else if (addr >= 0x1000) {
- //       nvme_process_db(n, addr, data);
- //   }
-
- //   trace_nvme_mmio_write(addr, size, data);
+	  printf("ufs mmio write.\n");
+	  UfsCtrl *n = (UfsCtrl *)opaque;
+      ufs_write_bar(n, addr, data, size);
+      trace_nvme_mmio_write(addr, size, data);
 }
 
-// static void nvme_cmb_write(void *opaque, hwaddr addr, uint64_t data,
-//     unsigned size)
-// {
-//     NvmeCtrl *n = (NvmeCtrl *)opaque;
-//     memcpy(&n->cmbuf[addr], &data, size);
-// 
-//     trace_nvme_cmb_write(addr, size, data);			//没有函数定义 				aran-lq
-// }
-// 
-// static uint64_t nvme_cmb_read(void *opaque, hwaddr addr, unsigned size)
-// {
-//     uint64_t val;
-//     NvmeCtrl *n = (NvmeCtrl *)opaque;
-// 
-//     memcpy(&val, &n->cmbuf[addr], size);
-//     trace_nvme_cmb_read(addr, size, val);			//没有函数定义			aran-lq
-//     return val;
-// }
 
-//static const MemoryRegionOps nvme_cmb_ops = {			//controller memory buffer		参看最前面  aran-lq
-//    .read = nvme_cmb_read,
-//    .write = nvme_cmb_write,
-//    .endianness = DEVICE_LITTLE_ENDIAN,
-//    .impl = {
-//        .min_access_size = 2,
-//        .max_access_size = 8,
-//    },
-//};
 
 static const MemoryRegionOps ufs_mmio_ops = {
     .read = ufs_mmio_read,
@@ -315,310 +406,440 @@ static const MemoryRegionOps ufs_mmio_ops = {
 
 static int ufs_check_constraints(UfsCtrl *n)
 {
- //   if ((!(n->conf.blk)) || !(n->serial) ||
- //       (n->num_namespaces == 0 || n->num_namespaces > NVME_MAX_NUM_NAMESPACES) ||
- //       (n->num_queues < 1 || n->num_queues > NVME_MAX_QS) ||
- //       (n->db_stride > NVME_MAX_STRIDE) ||
- //       (n->max_q_ents < 1) ||
- //       (n->max_sqes > NVME_MAX_QUEUE_ES || n->max_cqes > NVME_MAX_QUEUE_ES ||
- //           n->max_sqes < NVME_MIN_SQUEUE_ES || n->max_cqes < NVME_MIN_CQUEUE_ES) ||
- //       (n->vwc > 1 || n->intc > 1 || n->cqr > 1 || n->extended > 1) ||
- //       (n->nlbaf > 16) ||
- //       (n->lba_index >= n->nlbaf) ||
- //       (n->meta && !n->mc) ||
- //       (n->extended && !(NVME_ID_NS_MC_EXTENDED(n->mc))) ||
- //       (!n->extended && n->meta && !(NVME_ID_NS_MC_SEPARATE(n->mc))) ||
- //       (n->dps && n->meta < 8) ||
- //       (n->dps && ((n->dps & DPS_FIRST_EIGHT) &&
- //           !NVME_ID_NS_DPC_FIRST_EIGHT(n->dpc))) ||
- //       (n->dps && !(n->dps & DPS_FIRST_EIGHT) &&
- //           !NVME_ID_NS_DPC_LAST_EIGHT(n->dpc)) ||
- //       (n->dps & DPS_TYPE_MASK && !((n->dpc & NVME_ID_NS_DPC_TYPE_MASK) &
- //           (1 << ((n->dps & DPS_TYPE_MASK) - 1)))) ||
- //       (n->mpsmax > 0xf || n->mpsmax > n->mpsmin) ||
- //       (n->oacs & ~(NVME_OACS_FORMAT)) ||
- //       (n->oncs & ~(NVME_ONCS_COMPARE | NVME_ONCS_WRITE_UNCORR |
- //           NVME_ONCS_DSM | NVME_ONCS_WRITE_ZEROS))) {
- //       return -1;
- //   }
+	printf("ufs check constraints\n");
+	/* remain null 		aran-lq*/
     return 0;
 }
 
 static void ufs_init_lun(UfsCtrl *n)
 {
+	printf("ufs init lun\n");
  }
 
 static void lnvm_init_id_ctrl(LnvmCtrl *ln)
-{
+{ 
+	LnvmIdCtrl *ln_id = &ln->id_ctrl;
+    ln_id->ver_id = 1;
+    ln_id->vmnt = 0;
+    ln_id->cgrps = 1;
+    ln_id->cap = cpu_to_le32(0x3);
+		
+    ln_id->ppaf.sect_offset = 0;
+    ln_id->ppaf.sect_len = qemu_fls(cpu_to_le16(ln->params.sec_per_pg) - 1);
+    ln_id->ppaf.pln_offset = ln_id->ppaf.sect_offset + ln_id->ppaf.sect_len;
+    ln_id->ppaf.pln_len = qemu_fls(cpu_to_le16(ln->params.num_pln) - 1);
+    ln_id->ppaf.pg_offset = ln_id->ppaf.pln_offset + ln_id->ppaf.pln_len;
+    ln_id->ppaf.pg_len = qemu_fls(cpu_to_le16(ln->params.pgs_per_blk) - 1);
+    ln_id->ppaf.blk_offset = ln_id->ppaf.pg_offset + ln_id->ppaf.pg_len;
+    ln_id->ppaf.blk_len = qemu_fls(cpu_to_le16(ln->id_ctrl.groups[0].num_blk) - 1);
+    ln_id->ppaf.lun_offset = ln_id->ppaf.blk_offset + ln_id->ppaf.blk_len;
+    ln_id->ppaf.lun_len = qemu_fls(cpu_to_le16(ln->params.num_lun) - 1);
+    ln_id->ppaf.ch_offset = ln_id->ppaf.lun_offset + ln_id->ppaf.lun_len;
+    ln_id->ppaf.ch_len = qemu_fls(cpu_to_le16(ln->params.num_ch) - 1);
  }
 
 static int lnvm_init_meta(LnvmCtrl *ln)
 {
-     return 0;
+	char *state = NULL;
+    struct stat buf;
+    size_t meta_tbytes, res;
+	
+    ln->int_meta_size = 4;      // Internal meta (state: ERASED / WRITTEN)
+	
+    //
+    // Internal meta are the first "ln->int_meta_size" bytes
+    // Then comes the tgt_oob_len with is the following ln->param.sos bytes
+    //
+	
+    meta_tbytes = (ln->int_meta_size + ln->params.sos) * \
+                  ln->params.total_secs;
+	
+    if (!ln->meta_fname) {      // Default meta file
+        ln->meta_auto_gen = 1;
+        ln->meta_fname = malloc(10);
+        if (!ln->meta_fname)
+            return -ENOMEM;
+        strncpy(ln->meta_fname, "meta.qemu\0", 10);
+    } else {
+        ln->meta_auto_gen = 0;
+    }
+	
+    ln->metadata = fopen(ln->meta_fname, "w+"); // Open the metadata file
+    if (!ln->metadata) {
+        error_report("ufs: lnvm_init_meta: fopen(%s)\n", ln->meta_fname);
+        return -EEXIST;
+    }
+	
+    if (fstat(fileno(ln->metadata), &buf)) {
+        error_report("ufs: lnvm_init_meta: fstat(%s)\n", ln->meta_fname);
+        return -1;
+    }
+	
+    if (buf.st_size == meta_tbytes)             // All good
+        return 0;
+	
+    //
+    // Create meta-data file when it is empty or invalid
+    //
+    if (ftruncate(fileno(ln->metadata), 0)) {
+        error_report("ufs: lnvm_init_meta: ftrunca(%s)\n", ln->meta_fname);
+        return -1;
+    }
+	
+    state = malloc(meta_tbytes);
+    if (!state) {
+        error_report("ufs: lnvm_init_meta: malloc f(%s)\n", ln->meta_fname);
+        return -ENOMEM;
+    }
+	
+    memset(state, LNVM_SEC_UNKNOWN, meta_tbytes);
+	
+    res = fwrite(state, 1, meta_tbytes, ln->metadata);
+	
+    free(state);
+	
+    if (res != meta_tbytes) {
+        error_report("ufs: lnvm_init_meta: fwrite(%s), res(%lu)\n",
+                     ln->meta_fname, res);
+        return -1;
+    }
+	
+    rewind(ln->metadata);
+	
+    return 0;
 }
 
 static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-lq
 {
-     return 0;
+    LnvmCtrl *ln;
+    LnvmIdGroup *c;
+    UfsLun *ns;
+    unsigned int i;
+    uint64_t chnl_blks;
+    uint32_t nr_total_blocks;
+    int ret = 0;
+	
+    ln = &n->lnvm_ctrl;
+	
+    if (ln->params.mtype != 0)
+        error_report("ufs: Only NAND Flash Memory supported at the moment\n");
+    if (ln->params.fmtype != 0)
+        error_report("ufs: Only SLC Flash is supported at the moment\n");
+    if (ln->params.num_ch != 1)
+        error_report("ufs: Only 1 channel is supported at the moment\n");
+    if ((ln->params.num_pln > 4) || (ln->params.num_pln == 3))
+        error_report("ufs: Only single, dual and quad plane modes supported \n");
+	
+    for (i = 0; i < n->num_luns; i++) {
+        ns = &n->luns[i];
+        chnl_blks = ns->ns_blks / (ln->params.sec_per_pg * ln->params.pgs_per_blk);
+	
+        c = &ln->id_ctrl.groups[0];
+        c->mtype = ln->params.mtype;
+        c->fmtype = ln->params.fmtype;
+        c->num_ch = ln->params.num_ch;
+        c->num_lun = ln->params.num_lun;
+        c->num_pln = ln->params.num_pln;
+	
+        c->num_blk = cpu_to_le16(chnl_blks) / (c->num_lun * c->num_pln);
+        c->num_pg = cpu_to_le16(ln->params.pgs_per_blk);
+        c->csecs = cpu_to_le16(ln->params.sec_size);
+        c->fpg_sz = cpu_to_le16(ln->params.sec_size * ln->params.sec_per_pg);
+        c->sos = cpu_to_le16(ln->params.sos);
+	
+        c->trdt = cpu_to_le32(70000);
+        c->trdm = cpu_to_le32(100000);
+        c->tprt = cpu_to_le32(1900000);
+        c->tprm = cpu_to_le32(3500000);
+        c->tbet = cpu_to_le32(3000000);
+        c->tbem = cpu_to_le32(3000000);
+	
+        switch(c->num_pln) {
+            case 1:
+                c->mpos = cpu_to_le32(0x10101); /* single plane */
+                break;
+            case 2:
+                c->mpos = cpu_to_le32(0x20202); /* dual plane */
+                break;
+            case 4:
+                c->mpos = cpu_to_le32(0x40404); /* quad plane */
+                break;
+            default:
+                error_report("ufs: Invalid plane mode\n");
+                return -EINVAL;
+        }
+	
+        nr_total_blocks = c->num_blk * c->num_pln * c->num_lun;
+        c->cpar = cpu_to_le16(0);
+        c->mccap = 1;
+        ns->bbtbl = qemu_blockalign(blk_bs(n->conf.blk), nr_total_blocks);
+        memset(ns->bbtbl, 0, nr_total_blocks);
+	
+        ret = (lnvm_bbt_load(ns, nr_total_blocks, 0, ns->bbtbl));
+        if (ret)
+            return ret;
+	
+        /* We devide the address space linearly to be able to fit into the 4KB
+         * sectors that the ufs driver divides the backend file. We do the
+         * division in LUNS - BLOCKS - PLANES - PAGES - SECTORS.
+         *
+         * For example a quad plane configuration is layed out as:
+         * -----------------------------------------------------------
+         * |                        QUAD PLANE                       |
+         * -------------- -------------- -------------- --------------
+         * |   LUN 00   | |   LUN 01   | |   LUN 02   | |   LUN 03   |
+         * -------------- -------------- -------------- --------------
+         * |   BLOCKS            |          ...          |   BLOCKS  |
+         * ----------------------
+         * |   PLANES   |              ...               |   PLANES  |
+         * -------------                                 -------------
+         * | PAGES |                 ...                 |   PAGES   |
+         * -----------------------------------------------------------
+         * |                        ALL SECTORS                      |
+         * -----------------------------------------------------------
+         */
+	
+        /* calculated values */
+        ln->params.sec_per_pl = ln->params.sec_per_pg * c->num_pln;
+        ln->params.sec_per_blk = ln->params.sec_per_pl * ln->params.pgs_per_blk;
+        ln->params.sec_per_lun = ln->params.sec_per_blk * c->num_blk;
+        ln->params.total_secs = ln->params.sec_per_lun * c->num_lun;
+	
+        /* Calculated unit values for ordering */
+        ln->params.pl_units = ln->params.sec_per_pg;
+        ln->params.pg_units = ln->params.pl_units * c->num_pln;
+        ln->params.blk_units = ln->params.pg_units * ln->params.pgs_per_blk;
+        ln->params.lun_units = ln->params.blk_units * c->num_blk;
+        ln->params.total_units = ln->params.lun_units * c->num_lun;
+	
+        /* previous address format 
+        ln->ppaf.blk_offset = 0;
+        ln->ppaf.pg_offset = ln->id_ctrl.ppaf.blk_len;
+        ln->ppaf.sec_offset = ln->ppaf.pg_offset + ln->id_ctrl.ppaf.pg_len;
+        ln->ppaf.pln_offset = ln->ppaf.sec_offset + ln->id_ctrl.ppaf.sect_len;
+        ln->ppaf.lun_offset = ln->ppaf.pln_offset + ln->id_ctrl.ppaf.pln_len;
+        ln->ppaf.ch_offset = ln->ppaf.lun_offset + ln->id_ctrl.ppaf.lun_len;
+        */
+	
+		lnvm_init_id_ctrl(ln);
+        /* Address format: CH | LUN | BLK | PG | PL | SEC */
+        ln->ppaf.sec_offset = ln->id_ctrl.ppaf.sect_offset;
+        ln->ppaf.pln_offset = ln->id_ctrl.ppaf.pln_offset;
+        ln->ppaf.pg_offset = ln->id_ctrl.ppaf.pg_offset;
+        ln->ppaf.blk_offset = ln->id_ctrl.ppaf.blk_offset;
+        ln->ppaf.lun_offset = ln->id_ctrl.ppaf.lun_offset;
+        ln->ppaf.ch_offset = ln->id_ctrl.ppaf.ch_offset;
+	
+        /* Address component selection MASK */
+        ln->ppaf.sec_mask = ((1 << ln->id_ctrl.ppaf.sect_len) - 1) <<
+							ln->ppaf.sec_offset;
+        ln->ppaf.pln_mask = ((1 << ln->id_ctrl.ppaf.pln_len) - 1) <<
+							ln->ppaf.pln_offset;
+        ln->ppaf.pg_mask = ((1 << ln->id_ctrl.ppaf.pg_len) - 1) <<
+						   ln->ppaf.pg_offset;
+        ln->ppaf.blk_mask = ((1 << ln->id_ctrl.ppaf.blk_len) - 1) <<
+							ln->ppaf.blk_offset;
+        ln->ppaf.lun_mask = ((1 << ln->id_ctrl.ppaf.lun_len) -1) <<
+							ln->ppaf.lun_offset;
+        ln->ppaf.ch_mask = ((1 << ln->id_ctrl.ppaf.ch_len) - 1) <<
+						   ln->ppaf.ch_offset;
+    }
+	
+    if (!ln->bbt_fname) {       // Default bbt file
+        ln->bbt_auto_gen = 1;
+        ln->bbt_fname = malloc(13);
+        if (!ln->bbt_fname)
+            return -ENOMEM;
+        strncpy(ln->bbt_fname, "bbtable.qemu\0", 13);
+    } else {
+        ln->bbt_auto_gen = 0;
+    }
+	
+    ret = lnvm_init_meta(ln);   // Initialize metadata file
+    if (ret) {
+        error_report("ufs: lnvm_init_meta: failed\n");
+        return ret;
+    }
+	
+    ret = (n->lnvm_ctrl.read_l2p_tbl) ? lnvm_read_tbls(n) : 0;
+    if (ret) {
+        error_report("ufs: cannot read l2p table\n");
+        return ret;
+    }
+	
+    return 0;
 }
 
 
 static void ufs_init_ctrl(UfsCtrl *n)
 {
- //   int i;
- //   UfsIdCtrl *id = &n->id_ctrl;
- //   uint8_t *pci_conf = n->parent_obj.config;
+	  printf("ufs init ctrl \n");
 
- //   id->vid = cpu_to_le16(pci_get_word(pci_conf + PCI_VENDOR_ID));
- //   id->ssvid = cpu_to_le16(pci_get_word(pci_conf + PCI_SUBSYSTEM_VENDOR_ID));
- //   strpadcpy((char *)id->mn, sizeof(id->mn), "QEMU Ufs Ctrl", ' ');
- //   strpadcpy((char *)id->fr, sizeof(id->fr), "1.0", ' ');
- //   strpadcpy((char *)id->sn, sizeof(id->sn), n->serial, ' ');
- //   id->rab = 6;
- //   id->ieee[0] = 0x00;
- //   id->ieee[1] = 0x02;
- //   id->ieee[2] = 0xb3;
- //   id->cmic = 0;
- //   id->mdts = n->mdts;
- //   id->oacs = cpu_to_le16(n->oacs);
- //   id->acl = n->acl;
- //   id->aerl = n->aerl;
- //   id->frmw = 7 << 1 | 1;
- //   id->lpa = 0 << 0;
- //   id->elpe = n->elpe;
- //   id->npss = 0;
- //   id->sqes = (n->max_sqes << 4) | 0x6;
- //   id->cqes = (n->max_cqes << 4) | 0x4;
- //   id->nn = cpu_to_le32(n->num_namespaces);
- //   id->oncs = cpu_to_le16(n->oncs);
- //   id->fuses = cpu_to_le16(0);
- //   id->fna = 0;
- //   id->vwc = n->vwc;
- //   id->awun = cpu_to_le16(0);
- //   id->awupf = cpu_to_le16(0);
- //   id->psd[0].mp = cpu_to_le16(0x9c4);
- //   id->psd[0].enlat = cpu_to_le32(0x10);
- //   id->psd[0].exlat = cpu_to_le32(0x4);
 
- //   n->features.arbitration     = 0x1f0f0706;
- //   n->features.power_mgmt      = 0;
- //   n->features.temp_thresh     = 0x14d;
- //   n->features.err_rec         = 0;
- //   n->features.volatile_wc     = n->vwc;
- //   n->features.num_queues      = (n->num_queues - 1) |
- //                                ((n->num_queues - 1) << 16);
- //   n->features.int_coalescing  = n->intc_thresh | (n->intc_time << 8);
- //   n->features.write_atomicity = 0;
- //   n->features.async_config    = 0x0;
- //   n->features.sw_prog_marker  = 0;
-
- //   for (i = 0; i < n->num_queues; i++) {
- //       n->features.int_vector_config[i] = i | (n->intc << 16);
- //   }
  //   /* 寄存器设置        aran-lq */
- //   n->bar.cap = 0;
- //   NVME_CAP_SET_MQES(n->bar.cap, n->max_q_ents);
- //   NVME_CAP_SET_CQR(n->bar.cap, n->cqr);
- //   NVME_CAP_SET_AMS(n->bar.cap, 1);
- //   NVME_CAP_SET_TO(n->bar.cap, 0xf);
- //   NVME_CAP_SET_DSTRD(n->bar.cap, n->db_stride);
- //   NVME_CAP_SET_NSSRS(n->bar.cap, 0);
- //   NVME_CAP_SET_CSS(n->bar.cap, 1);
- //   if (lnvm_dev(n))
- //       NVME_CAP_SET_LNVM(n->bar.cap, 1);
+	  n->bar.cap = 		0x1707101f;
+	  n->bar.vs = 		0x00000210;
+	  n->bar.is = 		0x00000000;
+	  n->bar.ie = 		0x00000000;
+	  n->bar.hcs = 		0x0000000f;
+	  n->bar.hce = 		0x00000001;
+	  n->bar.utrlba = 	0x80000000;
+	  n->bar.utrlbau =	0xb0000000;
+	  n->bar.utrldbr = 	0x00000000;
+	  n->bar.utrlclr = 	0x00000000;
+	  n->bar.utrlrsr = 	0x00000000;
+	  n->bar.utmrlba = 	0xe0000000;
+	  n->bar.utmrlbau = 0xf8000000;
+	  n->bar.utmrldbr = 0x00000000;
+	  n->bar.utmrlclr = 0x00000000;
+	  n->bar.utmrlrsr = 0x00000000;
+	  
+	  printf("ufs init ctrl over \n");
+	  //	   if (lnvm_dev(n))
+//		   UFS_CAP_SET_LNVM(n->bar.cap, 1);
 
- //   NVME_CAP_SET_MPSMIN(n->bar.cap, n->mpsmin);
- //   NVME_CAP_SET_MPSMAX(n->bar.cap, n->mpsmax);
-
- //   if (n->cmbsz)
- //       n->bar.vs = 0x00010200;
- //   else
- //       n->bar.vs = 0x00010100;
- //   n->bar.intmc = n->bar.intms = 0;
- //   n->temperature = NVME_TEMPERATURE;
+	  
+	
+   
+ 
 }
 
 static void ufs_init_pci(UfsCtrl *n)
-{
+{   
+	printf("ufs init pci\n");
     uint8_t *pci_conf = n->parent_obj.config;
 
     pci_conf[PCI_INTERRUPT_PIN] = 1;
     pci_config_set_prog_interface(pci_conf, 0x2);
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
-    pci_config_set_class(pci_conf, PCI_CLASS_STORAGE_EXPRESS);
-    pcie_endpoint_cap_init(&n->parent_obj, 0x80);
-
-    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufs",		//nvme_mmio_ops  函数注册吗？				aran-lq
+    pci_config_set_class(pci_conf, 0x0000);										//change to Zero			aran-lq
+    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//ufs_mmio_ops  register	aran-lq
         n->reg_size);
     pci_register_bar(&n->parent_obj, 0,
         PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
         &n->iomem);
-    // msix_init_exclusive_bar(&n->parent_obj, n->num_queues, 4);
-    // msi_init(&n->parent_obj, 0x50, 32, true, false);				//message signal interrupt, which is a system bus register		aran-lq
-
-    // if (n->cmbsz) {                                         //如果支持再分配属于CMB的内存区域       aran-lq
-
-    //     n->bar.cmbloc = n->cmbloc;
-    //     n->bar.cmbsz  = n->cmbsz;
-
-    //     n->cmbuf = g_malloc0(NVME_CMBSZ_GETSIZE(n->bar.cmbsz));
-    //     memory_region_init_io(&n->ctrl_mem, OBJECT(n), &nvme_cmb_ops, n, "nvme-cmb",
-    //                           NVME_CMBSZ_GETSIZE(n->bar.cmbsz));
-    //     pci_register_bar(&n->parent_obj, NVME_CMBLOC_BIR(n->bar.cmbloc),
-    //         PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
-    //         &n->ctrl_mem);
-
-    //}
+	
+	printf("ufs init pci over\n");
+   
 }
 
 static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备指针				aran-lq
-{
- //   NvmeCtrl *n = NVME(pci_dev);
- //   int64_t bs_size;
+{	  
+	  printf("ufs_init\n");
+      UfsCtrl *n = UFS(pci_dev);
+	  int64_t bs_size;
 
- //   blkconf_serial(&n->conf, &n->serial);
- //   if (nvme_check_constraints(n)) {
- //       return -1;
- //   }
+	  blkconf_serial(&n->conf, &n->serial);
+      if (ufs_check_constraints(n)) {
+	      return -1;
+      }
 
- //   bs_size = blk_getlength(n->conf.blk);
- //   if (bs_size < 0) {
- //       return -1;
- //   }
+      bs_size = blk_getlength(n->conf.blk);
+      if (bs_size < 0) {
+          return -1;
+      }
 
- //   n->start_time = time(NULL);
- //   n->reg_size = 1 << qemu_fls(0x1004 + 2 * (n->num_queues + 1) * 4);
- //   n->ns_size = bs_size / (uint64_t)n->num_namespaces;
+      n->start_time = time(NULL);
+      n->reg_size = 1 << qemu_fls(0x103);			//all Register sizes		aran-lq
+	  n->ns_size = bs_size / (uint64_t)n->num_luns;
 
- //   n->sq = g_malloc0(sizeof(*n->sq)*n->num_queues);
- //   n->cq = g_malloc0(sizeof(*n->cq)*n->num_queues);
- //   n->namespaces = g_malloc0(sizeof(*n->namespaces) * n->num_namespaces);
- //   n->elpes = g_malloc0((n->elpe + 1) * sizeof(*n->elpes));
- //   n->aer_reqs = g_malloc0((n->aerl + 1) * sizeof(*n->aer_reqs));
- //   n->features.int_vector_config = g_malloc0(n->num_queues *
- //       sizeof(*n->features.int_vector_config));
+      n->trl = g_malloc0(sizeof(*n->trl));			//malloca transfer request list		aran-lq
+      n->tml = g_malloc0(sizeof(*n->tml));
+      n->luns = g_malloc0(sizeof(*n->luns));
 
- //   ufs_init_pci(n);
- //   ufs_init_ctrl(n);						//nvmeIdCtrl 的初始化，主要是Controller register CAP的置位和设置等等		  aran-lq
- //   ufs_init_lun(n);
- //   if (lnvm_dev(n))
- //       return lnvm_init(n);				//添加的代码 			aran-lq
+	   ufs_init_pci(n);
+	   ufs_init_ctrl(n);					
+       ufs_init_lun(n);
+       if (lnvm_dev(n))
+          return lnvm_init(n);				//添加的代码 			aran-lq
+	   printf("ufs_init over\n");
     return 0;
 }
 
 static void lnvm_exit(UfsCtrl *n)
 {
- //   LnvmCtrl *ln = &n->lnvm_ctrl;
+    LnvmCtrl *ln = &n->lnvm_ctrl;
 
- //   if (ln->bbt_auto_gen)
- //       free(ln->bbt_fname);
- //   if (ln->meta_auto_gen)
- //       free(ln->meta_fname);
- //   fclose(n->lnvm_ctrl.bbt_fp);
- //   fclose(n->lnvm_ctrl.metadata);
- //   n->lnvm_ctrl.bbt_fp = NULL;
- //   n->lnvm_ctrl.metadata = NULL;
+   if (ln->bbt_auto_gen)
+        free(ln->bbt_fname);
+   if (ln->meta_auto_gen)
+       free(ln->meta_fname);
+	fclose(n->lnvm_ctrl.bbt_fp);
+	fclose(n->lnvm_ctrl.metadata);
+	n->lnvm_ctrl.bbt_fp = NULL;
+	n->lnvm_ctrl.metadata = NULL;
 }
 
-static void ufs_exit(PCIDevice *pci_dev)
+static void ufs_exit(PCIDevice *pci_dev)			
 {
- //   UfsCtrl *n = UFS(pci_dev);
+	  printf("ufs exit\n");
+      UfsCtrl *n = UFS(pci_dev);
 
- //   ufs_clear_ctrl(n);
- //   g_free(n->namespaces);
- //   g_free(n->features.int_vector_config);
- //   g_free(n->aer_reqs);
- //   g_free(n->elpes);
- //   g_free(n->cq);
- //   g_free(n->sq);
- //   msix_uninit_exclusive_bar(pci_dev);         //msix 中断       aran-lq
- //   memory_region_unref(&n->iomem);
- //   if (n->cmbsz) {
- //       memory_region_unref(&n->ctrl_mem);
- //   }
-
- //   if (lnvm_dev(n)) {
- //       lnvm_exit(n);					//执行lnvm的离开
- //   }
+      ufs_clear_ctrl(n);
+	  g_free(n->luns);
+      g_free(n->trl);
+      g_free(n->tml);
+      if (lnvm_dev(n)) {
+          lnvm_exit(n);			
+    }
 }
 
 static Property ufs_props[] = {
- //   DEFINE_BLOCK_PROPERTIES(NvmeCtrl, conf),
- //   DEFINE_PROP_STRING("serial", NvmeCtrl, serial),
- //   DEFINE_PROP_UINT32("namespaces", NvmeCtrl, num_namespaces, 1),	//name, state, field, defval	aran-lq
- //   DEFINE_PROP_UINT32("queues", NvmeCtrl, num_queues, 64),
- //   DEFINE_PROP_UINT32("entries", NvmeCtrl, max_q_ents, 0x7ff),
- //   DEFINE_PROP_UINT8("max_cqes", NvmeCtrl, max_cqes, 0x4),
- //   DEFINE_PROP_UINT8("max_sqes", NvmeCtrl, max_sqes, 0x6),
- //   DEFINE_PROP_UINT8("stride", NvmeCtrl, db_stride, 0),
- //   DEFINE_PROP_UINT8("aerl", NvmeCtrl, aerl, 3),
- //   DEFINE_PROP_UINT8("acl", NvmeCtrl, acl, 3),
- //   DEFINE_PROP_UINT8("elpe", NvmeCtrl, elpe, 3),
- //   DEFINE_PROP_UINT8("mdts", NvmeCtrl, mdts, 10),
- //   DEFINE_PROP_UINT8("cqr", NvmeCtrl, cqr, 1),
- //   DEFINE_PROP_UINT8("vwc", NvmeCtrl, vwc, 0),
- //   DEFINE_PROP_UINT8("intc", NvmeCtrl, intc, 0),
- //   DEFINE_PROP_UINT8("intc_thresh", NvmeCtrl, intc_thresh, 0),
- //   DEFINE_PROP_UINT8("intc_time", NvmeCtrl, intc_time, 0),
- //   DEFINE_PROP_UINT8("mpsmin", NvmeCtrl, mpsmin, 0),
- //   DEFINE_PROP_UINT8("mpsmax", NvmeCtrl, mpsmax, 0),
- //   DEFINE_PROP_UINT8("nlbaf", NvmeCtrl, nlbaf, 5),
- //   DEFINE_PROP_UINT8("lba_index", NvmeCtrl, lba_index, 3),
- //   DEFINE_PROP_UINT8("extended", NvmeCtrl, extended, 0),
- //   DEFINE_PROP_UINT8("dpc", NvmeCtrl, dpc, 0),
- //   DEFINE_PROP_UINT8("dps", NvmeCtrl, dps, 0),
- //   DEFINE_PROP_UINT8("mc", NvmeCtrl, mc, 0),
- //   DEFINE_PROP_UINT8("meta", NvmeCtrl, meta, 0),
- //   DEFINE_PROP_UINT32("cmbsz", NvmeCtrl, cmbsz, 0),
- //   DEFINE_PROP_UINT32("cmbloc", NvmeCtrl, cmbloc, 0),
- //   DEFINE_PROP_UINT16("oacs", NvmeCtrl, oacs, NVME_OACS_FORMAT),
- //   DEFINE_PROP_UINT16("oncs", NvmeCtrl, oncs, NVME_ONCS_DSM),
- //   DEFINE_PROP_UINT16("vid", NvmeCtrl, vid, 0x1d1d),
- //   DEFINE_PROP_UINT16("did", NvmeCtrl, did, 0x1f1f),
- //   DEFINE_PROP_UINT8("lver", NvmeCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
- //   DEFINE_PROP_UINT32("ll2pmode", NvmeCtrl, lnvm_ctrl.id_ctrl.dom, 1),
- //   DEFINE_PROP_UINT16("lsec_size", NvmeCtrl, lnvm_ctrl.params.sec_size, 4096),
- //   DEFINE_PROP_UINT8("lsecs_per_pg", NvmeCtrl, lnvm_ctrl.params.sec_per_pg, 1),
- //   DEFINE_PROP_UINT16("lpgs_per_blk", NvmeCtrl, lnvm_ctrl.params.pgs_per_blk, 256),
- //   DEFINE_PROP_UINT8("lmax_sec_per_rq", NvmeCtrl, lnvm_ctrl.params.max_sec_per_rq, 64),
- //   DEFINE_PROP_UINT8("lmtype", NvmeCtrl, lnvm_ctrl.params.mtype, 0),
- //   DEFINE_PROP_UINT8("lfmtype", NvmeCtrl, lnvm_ctrl.params.fmtype, 0),		//lnvm controller的参数信息设置 				aran-lq
- //   DEFINE_PROP_UINT8("lnum_ch", NvmeCtrl, lnvm_ctrl.params.num_ch, 1),
- //   DEFINE_PROP_UINT8("lnum_lun", NvmeCtrl, lnvm_ctrl.params.num_lun, 1),
- //   DEFINE_PROP_UINT8("lnum_pln", NvmeCtrl, lnvm_ctrl.params.num_pln, 1),
- //   DEFINE_PROP_UINT8("lreadl2ptbl", NvmeCtrl, lnvm_ctrl.read_l2p_tbl, 1),
- //   DEFINE_PROP_STRING("lbbtable", NvmeCtrl, lnvm_ctrl.bbt_fname),
- //   DEFINE_PROP_STRING("lmetadata", NvmeCtrl, lnvm_ctrl.meta_fname),
- //   DEFINE_PROP_UINT16("lmetasize", NvmeCtrl, lnvm_ctrl.params.sos, 16),
- //   DEFINE_PROP_UINT8("lbbfrequency", NvmeCtrl, lnvm_ctrl.bbt_gen_freq, 0),
- //   DEFINE_PROP_UINT32("lb_err_write", NvmeCtrl, lnvm_ctrl.err_write, 0),
- //   DEFINE_PROP_UINT32("ln_err_write", NvmeCtrl, lnvm_ctrl.n_err_write, 0),
- //   DEFINE_PROP_UINT8("ldebug", NvmeCtrl, lnvm_ctrl.debug, 0),
- //   DEFINE_PROP_UINT8("lstrict", NvmeCtrl, lnvm_ctrl.strict, 0),
- //   DEFINE_PROP_END_OF_LIST(),
+      DEFINE_BLOCK_PROPERTIES(UfsCtrl, conf),
+	  DEFINE_PROP_STRING("serial", UfsCtrl, serial),
+	  DEFINE_PROP_UINT32("luns", UfsCtrl, num_luns, 1),	//name, state, field, defval	aran-lq
+	  DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
+	  DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
+	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 32),
+	  DEFINE_PROP_UINT8("nutmrs", UfsCtrl, nutmrs, 8),
+	  DEFINE_PROP_UINT8("lver", UfsCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
+	  DEFINE_PROP_UINT32("ll2pmode", UfsCtrl, lnvm_ctrl.id_ctrl.dom, 0),
+	  DEFINE_PROP_UINT16("lsec_size", UfsCtrl, lnvm_ctrl.params.sec_size, 4096),
+	  DEFINE_PROP_UINT8("lsecs_per_pg", UfsCtrl, lnvm_ctrl.params.sec_per_pg, 1),
+	  DEFINE_PROP_UINT16("lpgs_per_blk", UfsCtrl, lnvm_ctrl.params.pgs_per_blk, 256),
+	  DEFINE_PROP_UINT8("lmax_sec_per_rq", UfsCtrl, lnvm_ctrl.params.max_sec_per_rq, 64),
+	  DEFINE_PROP_UINT8("lmtype", UfsCtrl, lnvm_ctrl.params.mtype, 0),
+	  DEFINE_PROP_UINT8("lfmtype", UfsCtrl, lnvm_ctrl.params.fmtype, 0),
+	  DEFINE_PROP_UINT8("lnum_ch", UfsCtrl, lnvm_ctrl.params.num_ch, 1),
+	  DEFINE_PROP_UINT8("lnum_lun", UfsCtrl, lnvm_ctrl.params.num_lun, 1),
+	  DEFINE_PROP_UINT8("lnum_pln", UfsCtrl, lnvm_ctrl.params.num_pln, 1),
+	  DEFINE_PROP_UINT8("lreadl2ptbl", UfsCtrl, lnvm_ctrl.read_l2p_tbl, 1),
+	  DEFINE_PROP_STRING("lbbtable", UfsCtrl, lnvm_ctrl.bbt_fname),
+	  DEFINE_PROP_STRING("lmetadata", UfsCtrl, lnvm_ctrl.meta_fname),
+	  DEFINE_PROP_UINT16("lmetasize", UfsCtrl, lnvm_ctrl.params.sos, 16),
+	  DEFINE_PROP_UINT8("lbbfrequency", UfsCtrl, lnvm_ctrl.bbt_gen_freq, 0),
+	  DEFINE_PROP_UINT32("lb_err_write", UfsCtrl, lnvm_ctrl.err_write, 0),
+	  DEFINE_PROP_UINT32("ln_err_write", UfsCtrl, lnvm_ctrl.n_err_write, 0),
+	  DEFINE_PROP_UINT8("ldebug", UfsCtrl, lnvm_ctrl.debug, 0),
+	  DEFINE_PROP_UINT8("lstrict", UfsCtrl, lnvm_ctrl.strict, 0),
+ 
+      DEFINE_PROP_END_OF_LIST(),
 };
 
 static const VMStateDescription ufs_vmstate = {
-    .name = "ufs",
+    .name = "ufshcd",
     .unmigratable = 1,                          
 };
 
 static void ufs_class_init(ObjectClass *oc, void *data)
-{
+{	
+	printf("ufs class init\n");
     DeviceClass *dc = DEVICE_CLASS(oc);			//将信息分别给到device_class和pci_device_class				aran-lq
     PCIDeviceClass *pc = PCI_DEVICE_CLASS(oc);
 
     pc->init = ufs_init;						//包括了lnvm_init				aran-lq
     pc->exit = ufs_exit;
-    pc->class_id = PCI_CLASS_STORAGE_OTHER;     //not EXPRESS                   aran-lq
-    pc->vendor_id = 0x1d1d;
-    pc->is_express = 0;                         //Not pcie but pci          aran-lq
+    pc->class_id = 0x0000;     //PCI Storage Scsi                  aran-lq
+    pc->vendor_id = 0x144d;
+
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Universal Flash Storage";
+	printf("ufs property initialize\n");
     dc->props = ufs_props;
     dc->vmsd = &ufs_vmstate;                    //vmstate   aran-lq
+	printf("ufs class init over\n");
 }
 
 static void ufs_get_bootindex(Object *obj, Visitor *v, void *opaque,
@@ -656,14 +877,16 @@ out:
 
 static void ufs_instance_init(Object *obj)
 {
+	printf("ufs instance init\n");
     object_property_add(obj, "bootindex", "int32",
                         ufs_get_bootindex,
                         ufs_set_bootindex, NULL, NULL, NULL);
     object_property_set_int(obj, -1, "bootindex", NULL);
+	printf("ufs instance over\n");
 }
 
 static const TypeInfo ufs_info = {
-    .name          = "ufs",
+    .name          = "ufshcd",
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(UfsCtrl),
     .class_init    = ufs_class_init,
@@ -672,6 +895,7 @@ static const TypeInfo ufs_info = {
 
 static void ufs_register_types(void)
 {
+    printf("UFS register \n");
     type_register_static(&ufs_info);
 }
 

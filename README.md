@@ -11,7 +11,7 @@ Configuration & installation follows the standard QEMU approach, consult [QEMU -
 
 Below is a minimal example of the installation process for x86_64, kvm-enabled emulation using libaio for I/O.
 
-    ./configure --python=/usr/bin/python2 --enable-kvm --target-list=x86_64-softmmu --enable-linux-aio --prefix=$HOME/qemu-nvme
+    ./configure --python=/usr/bin/python2 --enable-kvm --enable-debug --target-list=x86_64-softmmu --enable-linux-aio --prefix=$HOME/qemu-nvme
     make -j8
     make install
 
