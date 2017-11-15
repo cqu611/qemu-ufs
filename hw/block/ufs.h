@@ -10,11 +10,31 @@ enum {
     ALIGNED_UPIU_SIZE       = 512,
 };
 
+typedef struct UfsRwCmd {
+    uint8_t     opcode;
+    uint8_t     flags;
+    uint16_t    cid;
+    uint32_t    nsid;
+    uint64_t    rsvd2;
+    uint64_t    mptr;
+    uint64_t    prp1;
+    uint64_t    prp2;
+    uint64_t    slba;
+    uint16_t    nlb;
+    uint16_t    control;
+    uint32_t    dsmgmt;
+    uint32_t    reftag;
+    uint16_t    apptag;
+    uint16_t    appmask;
+} UfsRwCmd;
+
+
+/*UPIU format spec ufs2.1	not available	aran-lq*/
 typedef struct CmdUPIU {
     uint8_t     opcode;
     uint8_t     fuse;
     uint16_t    cid;
-    uint32_t    nsid;
+    uint32_t    lunid;				//LUN ID		aran-lq
     uint64_t    res1;
     uint64_t    mptr;
     uint64_t    prp1;
@@ -416,6 +436,12 @@ typedef struct UfsRangeType {
 #define UIC_ARG_ATTR_TYPE(t)        (((t) & 0xFF) << 16)
 #define UIC_GET_ATTR_ID(v)      (((v) >> 16) & 0xFFFF)
 
+
+enum UfsIoCommands {
+    UFS_CMD_WRITE              = 0x01,
+    UFS_CMD_READ               = 0x02,
+};
+
 enum LnvmAdminCommands {
     LNVM_ADM_CMD_IDENTITY          = 0xe2,
     LNVM_ADM_CMD_GET_L2P_TBL       = 0xea,
@@ -439,6 +465,9 @@ enum LnvmMetaState {
 };
 enum UfsStatusCodes {
     UFS_SUCCESS                = 0x0000,
+	UFS_INVALID_OPCODE         = 0x0001,
+	UFS_INVALID_FIELD          = 0x0002,
+	UFS_INVALID_LUNID          = 0x000b,
     UFS_NO_COMPLETE            = 0xffff,
 };
 
@@ -459,6 +488,7 @@ enum {
 };
 
 #define MASK_UIC_COMMAND_RESULT         0xFF
+#define UFS_ID_NS_FLBAS_INDEX(flbas)       ((flbas & 0xf))
 
 /* Interrupt disable masks */
 enum {
@@ -678,11 +708,15 @@ typedef struct UfsRequest {
     struct TransReqList       *rl;
 	struct TaskManageList     *ml;
     struct UfsLun		      *lun;
+	uint64_t                slba;
+	uint16_t                nlb;
 	uint16_t                status;
 	uint8_t                 cmd_opcode;
+	uint16_t                is_write;
     BlockAIOCB               *aiocb;
     BlockAcctCookie         acct;
     QEMUSGList              qsg;
+    QEMUIOVector            iov;			//qemu io vector		?	aran-lq
     QTAILQ_ENTRY(UfsRequest)entry;
 } UfsRequest;
 

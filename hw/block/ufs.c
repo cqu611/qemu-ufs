@@ -68,6 +68,8 @@ static uint32_t lnvm_tbl_size(UfsLun *ns)
 	return ns->tbl_entries * sizeof(*(ns->tbl));
 }
 
+
+
 static uint8_t lnvm_dev(UfsCtrl *n)
 {
     return (n->lnvm_ctrl.id_ctrl.ver_id != 0);
@@ -119,6 +121,62 @@ static int lnvm_read_tbls(UfsCtrl *n)
 
     return 0;
 }
+static void ufs_rw_cb(void *opaque, int ret)
+{
+	
+}
+
+static uint16_t ufs_map_prp(QEMUSGList *qsg, QEMUIOVector *iov,
+                             uint64_t prp1, uint64_t prp2, uint32_t len, UfsCtrl *n)
+{
+	return 0;
+
+}
+
+static uint16_t lnvm_rw(UfsCtrl *n, UfsLun *ns, CmdUPIU *cmd,
+						UfsRequest *req)
+{
+	return 0;
+}
+	
+static uint16_t ufs_rw(UfsCtrl *n, UfsLun *ns, CmdUPIU *cmd,
+						UfsRequest *req)
+{
+	UfsRwCmd *rw = (UfsRwCmd *)cmd;
+    uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
+    uint64_t prp1 = le64_to_cpu(rw->prp1);
+    uint64_t prp2 = le64_to_cpu(rw->prp2);
+    uint64_t slba;
+    const uint8_t lba_index = UFS_ID_NS_FLBAS_INDEX(ns->id_ns.flbas);
+    const uint8_t data_shift = ns->id_ns.lbaf[lba_index].ds;
+    uint64_t data_size = nlb << data_shift;
+    uint64_t aio_slba;
+	
+    slba = le64_to_cpu(rw->slba);
+    req->is_write = rw->opcode == UFS_CMD_WRITE;
+    aio_slba = ns->start_block + (slba << (data_shift - BDRV_SECTOR_BITS));
+	
+    if (ufs_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n)) {
+
+        return UFS_INVALID_FIELD;
+    }
+	
+    req->slba = slba;
+    req->status = UFS_SUCCESS;
+    req->nlb = nlb;
+    req->lun = ns;
+	
+    dma_acct_start(n->conf.blk, &req->acct, &req->qsg, req->is_write ?
+				BLOCK_ACCT_WRITE : BLOCK_ACCT_READ);
+  
+   req->aiocb = req->is_write ?
+				dma_blk_write(n->conf.blk, &req->qsg, aio_slba, ufs_rw_cb, req) :
+				dma_blk_read(n->conf.blk, &req->qsg, aio_slba, ufs_rw_cb, req);
+
+    return UFS_NO_COMPLETE;
+    return 0;
+}
+
 
 static uint16_t ufs_tm_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
 {
@@ -127,7 +185,26 @@ static uint16_t ufs_tm_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
 
 static uint16_t ufs_io_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
 {
-   return 0;
+	printf("This is a io command.\n");
+    UfsLun *luns;
+    uint32_t lunid = le32_to_cpu(cmd->lunid);
+	
+    if (lunid == 0 || lunid > n->num_luns) {			//LUN ID num limit		aran-lq
+        return UFS_INVALID_LUNID;
+    }
+	
+    luns = &n->luns[lunid - 1];
+    switch (cmd->opcode) {
+		case LNVM_CMD_HYBRID_WRITE:
+		case LNVM_CMD_PHYS_READ:
+		case LNVM_CMD_PHYS_WRITE:
+			return lnvm_rw(n, luns, cmd, req);
+		case UFS_CMD_READ:
+		case UFS_CMD_WRITE:
+			return ufs_rw(n, luns, cmd, req);
+		default:
+			return UFS_INVALID_OPCODE;
+    }
 }
 
 static void ufs_tm_req_completion(TaskManageList *trl, UfsRequest *req)
