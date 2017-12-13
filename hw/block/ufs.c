@@ -348,30 +348,28 @@ static int ufs_start_ctrl(UfsCtrl *n)
 
 static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
 {
+	uint64_t val1 = data;
+	uint32_t val = (uint32_t) data;
 	printf("ufs write bar.\n");
     switch (offset) {
 		case 0x20:
+			printf("val1 = %lx, val = %x. \n",val1,val);
+			printf("Interrupt Status write, the value was %x.\n",n->bar.is);
+			n->bar.is = val;
 			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
-			printf("irq attempt\n");
-			qemu_set_irq(n->irq,1);
-
 		case 0x24:
+			printf("val1 = %lx, val = %x. \n",val1,val);
 			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
-			printf("Interrupt Enable write, now value is %ld.\n",data);
-			n->bar.ie = data;
+			n->bar.ie = val;
 			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
-			printf("irq attempt\n");
-			qemu_set_irq(n->irq,1);
 		case 0x34:
 			printf("HCE write .\n");
-			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
-				printf("bar.hce = %d\n",n->bar.hce);
-				n->bar.hce = data;
+			if ((UFS_HCE_EN(val) && !UFS_HCE_EN(n->bar.hce))){
+				printf("bar.hce = %x.\n",n->bar.hce);
+				n->bar.hce = val;
 				
 			if(!ufs_start_ctrl(n)){
 				n->bar.hcs = UFS_UICCMD_READY | UFS_DP_READY ;
-				printf("irq attempt\n");
-				qemu_set_irq(n->irq,1);
 				printf("HCS command  ready. \n");
 			}else {
 				printf("HCS command not ready. \n");
@@ -407,7 +405,12 @@ static void ufs_mmio_write(void *opaque, hwaddr addr, uint64_t data,
 {
 	  printf("ufs mmio write.\n");
 	  UfsCtrl *n = (UfsCtrl *)opaque;
-      ufs_write_bar(n, addr, data, size);
+	  if (addr < sizeof(n->bar)) {
+		  ufs_write_bar(n, addr, data, size);
+	  } else 
+		 printf("Out of bar's address.\n");
+	  
+      
       trace_nvme_mmio_write(addr, size, data);
 }
 
@@ -425,14 +428,13 @@ static const MemoryRegionOps ufs_mmio_ops = {
 
 static int ufs_check_constraints(UfsCtrl *n)
 {
-	printf("ufs check constraints\n");
-	/* remain null 		aran-lq*/
+	
     return 0;
 }
 
 static void ufs_init_lun(UfsCtrl *n)
 {
-	printf("ufs init lun\n");
+	
  }
 
 static void lnvm_init_id_ctrl(LnvmCtrl *ln)
@@ -701,7 +703,7 @@ static void ufs_init_ctrl(UfsCtrl *n)
 	  /* HCI register init aran-lq */
 	  n->bar.vs = 		0x00000210;
 	  n->bar.is = 		0x00000000;
-	  n->bar.ie = 		0x00000000;
+	  n->bar.ie = 		0x0000ffff;
 	  n->bar.hcs = 		0x00000000;
 	  n->bar.hce = 		0x00000000;
 	  n->bar.utrlba = 	0x00000000;
@@ -715,38 +717,26 @@ static void ufs_init_ctrl(UfsCtrl *n)
 	  n->bar.utmrlclr = 0x00000000;
 	  n->bar.utmrlrsr = 0x00000000;
 	  
-	  printf("ufs init ctrl over \n");
-
-
-	  
-	
-   
- 
 }
 
 static void ufs_init_pci(UfsCtrl *n)
 {   
-	printf("ufs init pci\n");
     uint8_t *pci_conf = n->parent_obj.config;
-
-    pci_conf[PCI_INTERRUPT_PIN] = 4;
-  //  pci_config_set_prog_interface(pci_conf, 0x2);
+    pci_conf[PCI_INTERRUPT_PIN] = 4;//PIN_D		aran-lq
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
-    pci_config_set_class(pci_conf, 0x0000);										//change to Zero			aran-lq
-    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//ufs_mmio_ops  register	aran-lq
+    pci_config_set_class(pci_conf, 0x0000);	
+    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",
         n->reg_size);
     pci_register_bar(&n->parent_obj, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &n->iomem);
 	//interrupt allocate	aran-lq
 	n->irq = pci_allocate_irq(&n->parent_obj);
 
-	printf("ufs init pci over\n");
    
 }
 
 static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备指针				aran-lq
 {	  
-	  printf("ufs_init\n");
       UfsCtrl *n = UFS(pci_dev);
 	  int64_t bs_size;
 
@@ -773,7 +763,6 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
        ufs_init_lun(n);
        if (lnvm_dev(n))
           return lnvm_init(n);				//添加的代码 			aran-lq
-	   printf("ufs_init over\n");
     return 0;
 }
 
@@ -793,7 +782,6 @@ static void lnvm_exit(UfsCtrl *n)
 
 static void ufs_exit(PCIDevice *pci_dev)			
 {
-	  printf("ufs exit\n");
       UfsCtrl *n = UFS(pci_dev);
 
       ufs_clear_ctrl(n);
@@ -851,7 +839,6 @@ static const VMStateDescription ufs_vmstate = {
 
 static void ufs_class_init(ObjectClass *oc, void *data)
 {	
-	printf("ufs class init\n");
     DeviceClass *dc = DEVICE_CLASS(oc);			//将信息分别给到device_class和pci_device_class				aran-lq
     PCIDeviceClass *pc = PCI_DEVICE_CLASS(oc);
 
@@ -863,10 +850,8 @@ static void ufs_class_init(ObjectClass *oc, void *data)
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Universal Flash Storage";
-	printf("ufs property initialize\n");
     dc->props = ufs_props;
     dc->vmsd = &ufs_vmstate;                    //vmstate   aran-lq
-	printf("ufs class init over\n");
 }
 
 static void ufs_get_bootindex(Object *obj, Visitor *v, void *opaque,
@@ -904,12 +889,10 @@ out:
 
 static void ufs_instance_init(Object *obj)
 {
-	printf("ufs instance init\n");
     object_property_add(obj, "bootindex", "int32",
                         ufs_get_bootindex,
                         ufs_set_bootindex, NULL, NULL, NULL);
     object_property_set_int(obj, -1, "bootindex", NULL);
-	printf("ufs instance over\n");
 }
 
 static const TypeInfo ufs_info = {
@@ -922,7 +905,6 @@ static const TypeInfo ufs_info = {
 
 static void ufs_register_types(void)
 {
-    printf("UFS register \n");
     type_register_static(&ufs_info);
 }
 

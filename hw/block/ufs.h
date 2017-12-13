@@ -835,8 +835,7 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
 
 
 
-//static void ufs_init_pci(UfsCtrl *n)__attribute__ ((unused));
-//static void ufs_init_ctrl(UfsCtrl *n)__attribute__ ((unused));
+
 static int lnvm_init(UfsCtrl *n)__attribute__ ((unused));
 static int lnvm_init_meta(LnvmCtrl *n)__attribute__ ((unused));
 static void lnvm_init_id_ctrl(LnvmCtrl *n)__attribute__ ((unused));

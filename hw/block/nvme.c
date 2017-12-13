@@ -1779,7 +1779,6 @@ static uint16_t lnvm_erase_async(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 
 static uint16_t nvme_io_cmd(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
 {
-    printf("This is a io command.\n");
     NvmeNamespace *ns;
     uint32_t nsid = le32_to_cpu(cmd->nsid);
 
@@ -1888,7 +1887,6 @@ static uint16_t nvme_init_sq(NvmeSQueue *sq, NvmeCtrl *n, uint64_t dma_addr,
     uint16_t sqid, uint16_t cqid, uint16_t size, enum NvmeQueueFlags prio,
     int contig)
 {
-    printf("nvme init submission queue\n");
     int i;
     NvmeCQueue *cq;
 
@@ -2017,7 +2015,6 @@ static uint16_t nvme_init_cq(NvmeCQueue *cq, NvmeCtrl *n, uint64_t dma_addr,
     int contig)
 {
     
-    printf("nvme init completion queue\n");
     cq->ctrl = n;
     cq->cqid = cqid;
     cq->size = size;
@@ -2570,7 +2567,6 @@ static uint16_t nvme_set_db_memory(NvmeCtrl *n, const NvmeCmd *cmd)
 
 static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
 {
-    printf("This is a admin command.\n");
     switch (cmd->opcode) {
     case NVME_ADM_CMD_DELETE_SQ:
         return nvme_del_sq(n, cmd);
@@ -2633,7 +2629,6 @@ static void nvme_update_sq_tail(NvmeSQueue *sq)
 
 static void nvme_process_sq(void *opaque)
 {
-    printf("nvme process submission queue\n");
     NvmeSQueue *sq = opaque;
     NvmeCtrl *n = sq->ctrl;
     NvmeCQueue *cq = n->cq[sq->cqid];
@@ -2719,7 +2714,6 @@ static void nvme_clear_ctrl(NvmeCtrl *n)
 
 static int nvme_start_ctrl(NvmeCtrl *n)
 {	
-	printf("nvme start ctrl\n");
     uint32_t page_bits = NVME_CC_MPS(n->bar.cc) + 12;
     uint32_t page_size = 1 << page_bits;
 
@@ -2755,7 +2749,6 @@ static int nvme_start_ctrl(NvmeCtrl *n)
 static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
     unsigned size)
 {	
-	printf("nvme write bar.\n");
     switch (offset) {
     case 0xc:
         n->bar.intms |= data & 0xffffffff;
@@ -2808,13 +2801,11 @@ static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
 
 static uint64_t nvme_mmio_read(void *opaque, hwaddr addr, unsigned size)
 {
-    printf("nvme_mmio_read start\n");
     NvmeCtrl *n = (NvmeCtrl *)opaque;
     uint8_t *ptr = (uint8_t *)&n->bar;
     uint64_t val = 0;
 
     if (addr < sizeof(n->bar)) {
-    printf("mmio read memcpy start\n");
         memcpy(&val, ptr + addr, size);
     }
 
@@ -2901,14 +2892,12 @@ static void nvme_process_db(NvmeCtrl *n, hwaddr addr, int val)
 static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data,
     unsigned size)
 {
-	printf("nvme mmio write start.\n");
     NvmeCtrl *n = (NvmeCtrl *)opaque;
     if (addr < sizeof(n->bar)) {
         nvme_write_bar(n, addr, data, size);
     } else if (addr >= 0x1000) {
         nvme_process_db(n, addr, data);
     }
-	printf("nvme mmio write over.\n");
     trace_nvme_mmio_write(addr, size, data);
 }
 
@@ -3303,7 +3292,6 @@ static int lnvm_init(NvmeCtrl *n)
 
 static void nvme_init_ctrl(NvmeCtrl *n)
 {	
-	printf("This is in the nvme_init_ctrl\n");
     int i;
     NvmeIdCtrl *id = &n->id_ctrl;
     uint8_t *pci_conf = n->parent_obj.config;
@@ -3375,12 +3363,10 @@ static void nvme_init_ctrl(NvmeCtrl *n)
         n->bar.vs = 0x00010100;
     n->bar.intmc = n->bar.intms = 0;
     n->temperature = NVME_TEMPERATURE;
-	printf("nvme_init_ctrl over\n");
 }
 
 static void nvme_init_pci(NvmeCtrl *n)
 {
-	printf("This si in the nvme_init_pci\n");
     uint8_t *pci_conf = n->parent_obj.config;
 
     pci_conf[PCI_INTERRUPT_PIN] = 1;
@@ -3415,7 +3401,6 @@ static void nvme_init_pci(NvmeCtrl *n)
 
 static int nvme_init(PCIDevice *pci_dev)
 {
-	printf("This is in the nvme_init\n");
     NvmeCtrl *n = NVME(pci_dev);
     int64_t bs_size;
 
@@ -3548,7 +3533,6 @@ static const VMStateDescription nvme_vmstate = {
 
 static void nvme_class_init(ObjectClass *oc, void *data)
 {	
-	printf(" nvme class init\n");
     DeviceClass *dc = DEVICE_CLASS(oc);
     PCIDeviceClass *pc = PCI_DEVICE_CLASS(oc);
 
@@ -3562,7 +3546,6 @@ static void nvme_class_init(ObjectClass *oc, void *data)
     dc->desc = "Non-Volatile Memory Express";
     dc->props = nvme_props;
     dc->vmsd = &nvme_vmstate;
-	printf(" nvme class init over\n");
 }
 
 static void nvme_get_bootindex(Object *obj, Visitor *v, void *opaque,
@@ -3600,7 +3583,6 @@ out:
 
 static void nvme_instance_init(Object *obj)
 {
-	printf(" nvme instance init\n");
     object_property_add(obj, "bootindex", "int32",
                         nvme_get_bootindex,
                         nvme_set_bootindex, NULL, NULL, NULL);
@@ -3617,7 +3599,6 @@ static const TypeInfo nvme_info = {
 
 static void nvme_register_types(void)
 {	
-	printf(" nvme Type register\n");
     type_register_static(&nvme_info);
 }
 
