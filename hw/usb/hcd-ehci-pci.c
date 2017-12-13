@@ -86,7 +86,8 @@ static void usb_ehci_pci_init(Object *obj)
     if (!dc->hotpluggable) {
         s->companion_enable = true;
     }
-
+	
+	//call function in hcd-ehci.c
     usb_ehci_init(s, DEVICE(obj));
 }
 

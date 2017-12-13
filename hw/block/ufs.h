@@ -799,6 +799,8 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     MemoryRegion ctrl_mem;
     UfsBar       bar;					//register		aran-lq
     BlockConf    conf;
+	
+	qemu_irq irq;						//interrupt request	aran-lq
 
     time_t      start_time;
     uint16_t    temperature;

@@ -352,11 +352,16 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
     switch (offset) {
 		case 0x20:
 			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
+			printf("irq attempt\n");
+			qemu_set_irq(n->irq,1);
+
 		case 0x24:
 			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
 			printf("Interrupt Enable write, now value is %ld.\n",data);
 			n->bar.ie = data;
 			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
+			printf("irq attempt\n");
+			qemu_set_irq(n->irq,1);
 		case 0x34:
 			printf("HCE write .\n");
 			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
@@ -365,6 +370,8 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 				
 			if(!ufs_start_ctrl(n)){
 				n->bar.hcs = UFS_UICCMD_READY | UFS_DP_READY ;
+				printf("irq attempt\n");
+				qemu_set_irq(n->irq,1);
 				printf("HCS command  ready. \n");
 			}else {
 				printf("HCS command not ready. \n");
@@ -709,8 +716,7 @@ static void ufs_init_ctrl(UfsCtrl *n)
 	  n->bar.utmrlrsr = 0x00000000;
 	  
 	  printf("ufs init ctrl over \n");
-	  // if (lnvm_dev(n))
-	  //      UFS_CAP_SET_LNVM(n->bar.cap, 1);
+
 
 	  
 	
@@ -723,17 +729,17 @@ static void ufs_init_pci(UfsCtrl *n)
 	printf("ufs init pci\n");
     uint8_t *pci_conf = n->parent_obj.config;
 
-    pci_conf[PCI_INTERRUPT_PIN] = 1;
-    pci_config_set_prog_interface(pci_conf, 0x2);
+    pci_conf[PCI_INTERRUPT_PIN] = 4;
+  //  pci_config_set_prog_interface(pci_conf, 0x2);
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
     pci_config_set_class(pci_conf, 0x0000);										//change to Zero			aran-lq
     memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//ufs_mmio_ops  register	aran-lq
         n->reg_size);
-    pci_register_bar(&n->parent_obj, 0,
-        PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
-        &n->iomem);
-	
+    pci_register_bar(&n->parent_obj, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &n->iomem);
+	//interrupt allocate	aran-lq
+	n->irq = pci_allocate_irq(&n->parent_obj);
+
 	printf("ufs init pci over\n");
    
 }
@@ -794,6 +800,13 @@ static void ufs_exit(PCIDevice *pci_dev)
 	  g_free(n->luns);
       g_free(n->trl);
       g_free(n->tml);
+	  
+	  //free IRQ  aran-lq
+	  if (n->irq) {
+		  g_free(n->irq);
+		  n->irq = NULL;
+	  }
+	  
       if (lnvm_dev(n)) {
           lnvm_exit(n);			
     }
