@@ -350,15 +350,27 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 {
 	printf("ufs write bar.\n");
     switch (offset) {
+		case 0x20:
+			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
+		case 0x24:
+			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
+			printf("Interrupt Enable write, now value is %ld.\n",data);
+			n->bar.ie = data;
+			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
 		case 0x34:
+			printf("HCE write .\n");
 			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
-			n->bar.hce = data;
-			if(ufs_start_ctrl(n)){
-				n->bar.hcs = UFs_CMD_READY;
+				printf("bar.hce = %d\n",n->bar.hce);
+				n->bar.hce = data;
+				
+			if(!ufs_start_ctrl(n)){
+				n->bar.hcs = UFS_UICCMD_READY | UFS_DP_READY ;
+				printf("HCS command  ready. \n");
 			}else {
-				n->bar.hcs = UFs_CMD_FAILED;
+				printf("HCS command not ready. \n");
 			}
 			}
+		
 		
 		default:
 				break;
@@ -370,7 +382,7 @@ static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
 	 printf("ufs mmio read.\n");
      UfsCtrl *n = (UfsCtrl *)opaque;
      uint8_t *ptr = (uint8_t *)&n->bar;
-     uint64_t val = 0;
+     uint32_t val = 0;
 
      if (addr < sizeof(n->bar)) {
           memcpy(&val, ptr + addr, size);
@@ -673,30 +685,32 @@ static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-
 
 static void ufs_init_ctrl(UfsCtrl *n)
 {
-	  printf("ufs init ctrl \n");
+	  n->bar.cap = 0;
+	  UFS_CAP_SET_NUTRS(n->bar.cap, n->nutrs);
+	  UFS_CAP_SET_NUTMRS(n->bar.cap, n->nutmrs);
+	  UFS_CAP_SET_NORTT(n->bar.cap, 2);	//num(2) of outstanding RTT request support
+	  UFS_CAP_SET_64AS(n->bar.cap, 1); 
 
-
- //   /* 寄存器设置        aran-lq */
-	  n->bar.cap = 		0x1707101f;
+	  /* HCI register init aran-lq */
 	  n->bar.vs = 		0x00000210;
 	  n->bar.is = 		0x00000000;
 	  n->bar.ie = 		0x00000000;
-	  n->bar.hcs = 		0x0000000f;
-	  n->bar.hce = 		0x00000001;
-	  n->bar.utrlba = 	0x80000000;
-	  n->bar.utrlbau =	0xb0000000;
+	  n->bar.hcs = 		0x00000000;
+	  n->bar.hce = 		0x00000000;
+	  n->bar.utrlba = 	0x00000000;
+	  n->bar.utrlbau =	0x00000000;
 	  n->bar.utrldbr = 	0x00000000;
 	  n->bar.utrlclr = 	0x00000000;
 	  n->bar.utrlrsr = 	0x00000000;
-	  n->bar.utmrlba = 	0xe0000000;
-	  n->bar.utmrlbau = 0xf8000000;
+	  n->bar.utmrlba = 	0x00000000;
+	  n->bar.utmrlbau = 0x00000000;
 	  n->bar.utmrldbr = 0x00000000;
 	  n->bar.utmrlclr = 0x00000000;
 	  n->bar.utmrlrsr = 0x00000000;
 	  
 	  printf("ufs init ctrl over \n");
-	  //	   if (lnvm_dev(n))
-//		   UFS_CAP_SET_LNVM(n->bar.cap, 1);
+	  // if (lnvm_dev(n))
+	  //      UFS_CAP_SET_LNVM(n->bar.cap, 1);
 
 	  
 	
@@ -791,8 +805,8 @@ static Property ufs_props[] = {
 	  DEFINE_PROP_UINT32("luns", UfsCtrl, num_luns, 1),	//name, state, field, defval	aran-lq
 	  DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
 	  DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
-	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 32),
-	  DEFINE_PROP_UINT8("nutmrs", UfsCtrl, nutmrs, 8),
+	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 31),
+	  DEFINE_PROP_UINT8("nutmrs", UfsCtrl, nutmrs, 7),
 	  DEFINE_PROP_UINT8("lver", UfsCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
 	  DEFINE_PROP_UINT32("ll2pmode", UfsCtrl, lnvm_ctrl.id_ctrl.dom, 0),
 	  DEFINE_PROP_UINT16("lsec_size", UfsCtrl, lnvm_ctrl.params.sec_size, 4096),

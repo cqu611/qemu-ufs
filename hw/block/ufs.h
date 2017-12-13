@@ -53,7 +53,7 @@ typedef struct UfsBar {
     uint32_t    rsvd0;		
     uint32_t    vs;	
     uint32_t    rsvd1;		
-    uint32_t    hcpid;		
+    uint32_t    hcdid;		
     uint32_t    hcpmid;		
     uint32_t    ahit;			
     uint32_t    rsvd2;
@@ -64,7 +64,7 @@ typedef struct UfsBar {
     uint64_t    rsvd3;		
     uint32_t    hcs;					
     uint32_t    hce;		
-    uint32_t    uevpa;		
+    uint32_t    uecpa;		
     uint32_t    uecdl;
     uint32_t    uecn;
     uint32_t    uect;
@@ -109,22 +109,34 @@ typedef struct UfsBar {
 enum UfsCapShift {
     CAP_NUTRS_SHIFT      = 0,
     CAP_NORTT_SHIFT      = 8,
-    CAP_NUTMRS_SHIFT     = 18,
+    CAP_NUTMRS_SHIFT     = 16,
     CAP_AUTOH8_SHIFT     = 23,
     CAP_64AS_SHIFT       = 24,
     CAP_OODDS_SHIFT      = 25,    
     CAP_UICDMETMS_SHIFT  = 26,
-    CAP_CS_SHIFT         = 33,
+    CAP_CS_SHIFT         = 28,
 };
 
 enum UfsCapMask {
     CAP_NUTRS_MASK          = 0x1F,
+	CAP_NORTT_MASK          = 0xFF,
     CAP_NUTMRS_MASK         = 0x7,
     CAP_64AS_MASK          = 0x1,
     CAP_OODDS_MAKS          = 0x1,
     CAP_UICDMETMS_MASK      = 0x1,
 };
 
+#define UFS_CAP_SET_NUTRS(cap, val)   (cap |= (uint32_t)(val & CAP_NUTRS_MASK ) \
+		<< CAP_NUTRS_SHIFT)
+
+#define UFS_CAP_SET_NUTMRS(cap, val)   (cap |= (uint32_t)(val & CAP_NUTMRS_MASK ) \
+		<< CAP_NUTMRS_SHIFT)
+
+#define UFS_CAP_SET_NORTT(cap, val)   (cap |= (uint32_t)(val & CAP_NORTT_MASK ) \
+		<< CAP_NORTT_SHIFT)
+
+#define UFS_CAP_SET_64AS(cap, val)   (cap |= (uint32_t)(val & CAP_64AS_MASK ) \
+		<< CAP_64AS_SHIFT)
 enum UfsVerShift {
     VER_VS_SHIFT      = 0,
     VER_MNR_SHIFT     = 4,
@@ -191,8 +203,8 @@ enum UfsHcsShift {
 };
 
 enum UFsHcs {
-    UFs_CMD_READY         = 1 << HCS_UCRDY_SHIFT,
-	UFs_CMD_FAILED         = 1 << HCS_DP_SHIFT,
+    UFS_UICCMD_READY         = 1 << HCS_UCRDY_SHIFT,
+	UFS_DP_READY         = 1 << HCS_DP_SHIFT,
 };
 
 enum UfsHcsMask {
@@ -205,6 +217,7 @@ enum UfsHcsMask {
 };
 
 #define UFS_HCE_EN(cap)  (((cap) >> HCE_HCE_SHIFT)   & HCE_HCE_MASK)
+#define UFS_HCS_UCRDY_EN(hcs) ( hcs = 0x00000008)
 
 /* UIC Power Mode Change Request Status */
 enum {
