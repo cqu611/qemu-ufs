@@ -381,17 +381,17 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 		case 0x20:
 			printf("Interrupt Status write, the value was %x.\n",n->bar.is);
 			n->bar.is &= ~(data & 0xffffffff);
-			ufs_update_irq(n);
+			ufs_update_irq(n);//Everytime host write IS with '1' will clear coresponding bit.
 			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
 		case 0x24:
 			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
-			n->bar.ie = data;
+			n->bar.ie = data & 0xffffffff;
 			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
 		case 0x34:
 			printf("HCE write .\n");
 			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
 				printf("HCE was %x.\n",n->bar.hce);
-				n->bar.hce = data;
+				n->bar.hce = data & 0xffffffff;
 				printf("HCE is %x.\n",n->bar.hce);
 				//UIC command ready.
 				n->bar.hcs = UFS_UICCMD_READY;
@@ -405,40 +405,40 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 			}
 		case 0x50:
 			printf("UTP Transfer Request List Base Address.\n");
-			n->bar.utrlba = data;
+			n->bar.utrlba = data & 0xffffffff;
 		case 0x54:
 			printf("UTP Transfer Request List Base Address Upper 32-Bits.\n");
-			n->bar.utrlbau = data;
+			n->bar.utrlbau = data & 0xffffffff;
 		case 0x60:
 			printf("UTP Task Management Request List Run Stop register.\n");
-			n->bar.utrlrsr = data;
+			n->bar.utrlrsr = data & 0xffffffff;
 		case 0x70:
 			printf("UTP Task Management Request List Base Address.\n");
-			n->bar.utmrlba = data;
+			n->bar.utmrlba = data & 0xffffffff;
 		case 0x74:
 			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
-			n->bar.utmrlbau = data;
+			n->bar.utmrlbau = data & 0xffffffff;
 		case 0x80:
 			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
-			n->bar.utmrlrsr = data;
+			n->bar.utmrlrsr = data & 0xffffffff;
 
 		case 0x90:
 			printf("UIC command writes. Value was %x.\n", n->bar.uiccmd);
-			n->bar.uiccmd = data;
+			n->bar.uiccmd = data & 0xffffffff;
 			if(n->bar.uiccmd == UIC_CMD_DME_LINK_STARTUP)//DME_LINK_STARTUP command	aran-lq
 				uic_cmd_complete(n);
 			printf("UIC command writes. Now value is %x.\n", n->bar.uiccmd);
 		case 0x94:
 			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg1);
-			n->bar.ucmdarg1 = data;
+			n->bar.ucmdarg1 = data & 0xffffffff;
 			printf("UIC arg1 writes. Now value is %x.\n", n->bar.ucmdarg1);
 		case 0x98:
 			printf("UIC arg2 writes. Value was %x.\n", n->bar.ucmdarg2);
-			n->bar.ucmdarg2 = data;
+			n->bar.ucmdarg2 = data & 0xffffffff;
 			printf("UIC arg2 writes. Now value is %x.\n", n->bar.ucmdarg3);
 		case 0x9c:
 			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg3);
-			n->bar.ucmdarg3 = data;
+			n->bar.ucmdarg3 = data & 0xffffffff;
 			printf("UIC arg3 writes. Now value is %x.\n", n->bar.ucmdarg3);
 			
 		
