@@ -40,6 +40,20 @@ static void ufs_addr_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
     
 }
 
+/* update irq line */
+/* The function to update interrupt , aran-lq*/
+static inline void ufs_update_irq(UfsCtrl *n)
+{
+    int level = 0;
+
+    if ((n->bar.is & UFSINTR_MASK) & n->bar.ie) {
+        level = 1;
+    }
+
+    qemu_set_irq(n->irq, level);
+}
+
+
 static void ufs_update_trl_slot(const TransReqList *trl)
 {
 	
@@ -321,11 +335,25 @@ static uint16_t ufs_init_tml(TaskManageList *tml, UfsCtrl *n, uint64_t dma_addr)
 
 	return 0;
 }
+static void uic_cmd_complete(UfsCtrl *n)
+{
+	printf("UIC command complete procedure. \n");
+	n->bar.ucmdarg2 &= 0xffffff00;
+	n->bar.is |= UFS_UCCS_COMPL;
+	//device present
+	n->bar.hcs|= UFS_DP_READY;
+	n->bar.hcs|= UFS_UTRLRDY_READY;
+	n->bar.hcs|= UFS_UTMRLRDY_READY;                              
+	ufs_update_irq(n);
+	
+	//qemu_set_irq(n->irq, 1);
+	//qemu_set_irq(n->irq, 0);
+}
 
 static void ufs_clear_ctrl(UfsCtrl *n)
    {
 
-   }
+   }                                 
    
 
 static int ufs_start_ctrl(UfsCtrl *n)
@@ -348,34 +376,71 @@ static int ufs_start_ctrl(UfsCtrl *n)
 
 static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
 {
-	uint64_t val1 = data;
-	uint32_t val = (uint32_t) data;
 	printf("ufs write bar.\n");
     switch (offset) {
 		case 0x20:
-			printf("val1 = %lx, val = %x. \n",val1,val);
 			printf("Interrupt Status write, the value was %x.\n",n->bar.is);
-			n->bar.is = val;
+			n->bar.is &= ~(data & 0xffffffff);
+			ufs_update_irq(n);
 			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
 		case 0x24:
-			printf("val1 = %lx, val = %x. \n",val1,val);
 			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
-			n->bar.ie = val;
+			n->bar.ie = data;
 			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
 		case 0x34:
 			printf("HCE write .\n");
-			if ((UFS_HCE_EN(val) && !UFS_HCE_EN(n->bar.hce))){
-				printf("bar.hce = %x.\n",n->bar.hce);
-				n->bar.hce = val;
+			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
+				printf("HCE was %x.\n",n->bar.hce);
+				n->bar.hce = data;
+				printf("HCE is %x.\n",n->bar.hce);
+				//UIC command ready.
+				n->bar.hcs = UFS_UICCMD_READY;
 				
-			if(!ufs_start_ctrl(n)){
-				n->bar.hcs = UFS_UICCMD_READY | UFS_DP_READY ;
-				printf("HCS command  ready. \n");
-			}else {
-				printf("HCS command not ready. \n");
+				if(!ufs_start_ctrl(n)){
+
+					printf("HCS command  ready. \n");
+				}else {
+					printf("HCS command not ready. \n");
+				}
 			}
-			}
-		
+		case 0x50:
+			printf("UTP Transfer Request List Base Address.\n");
+			n->bar.utrlba = data;
+		case 0x54:
+			printf("UTP Transfer Request List Base Address Upper 32-Bits.\n");
+			n->bar.utrlbau = data;
+		case 0x60:
+			printf("UTP Task Management Request List Run Stop register.\n");
+			n->bar.utrlrsr = data;
+		case 0x70:
+			printf("UTP Task Management Request List Base Address.\n");
+			n->bar.utmrlba = data;
+		case 0x74:
+			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
+			n->bar.utmrlbau = data;
+		case 0x80:
+			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
+			n->bar.utmrlrsr = data;
+
+		case 0x90:
+			printf("UIC command writes. Value was %x.\n", n->bar.uiccmd);
+			n->bar.uiccmd = data;
+			if(n->bar.uiccmd == UIC_CMD_DME_LINK_STARTUP)//DME_LINK_STARTUP command	aran-lq
+				uic_cmd_complete(n);
+			printf("UIC command writes. Now value is %x.\n", n->bar.uiccmd);
+		case 0x94:
+			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg1);
+			n->bar.ucmdarg1 = data;
+			printf("UIC arg1 writes. Now value is %x.\n", n->bar.ucmdarg1);
+		case 0x98:
+			printf("UIC arg2 writes. Value was %x.\n", n->bar.ucmdarg2);
+			n->bar.ucmdarg2 = data;
+			printf("UIC arg2 writes. Now value is %x.\n", n->bar.ucmdarg3);
+		case 0x9c:
+			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg3);
+			n->bar.ucmdarg3 = data;
+			printf("UIC arg3 writes. Now value is %x.\n", n->bar.ucmdarg3);
+			
 		
 		default:
 				break;
@@ -703,7 +768,7 @@ static void ufs_init_ctrl(UfsCtrl *n)
 	  /* HCI register init aran-lq */
 	  n->bar.vs = 		0x00000210;
 	  n->bar.is = 		0x00000000;
-	  n->bar.ie = 		0x0000ffff;
+	  n->bar.ie = 		0x00000000;
 	  n->bar.hcs = 		0x00000000;
 	  n->bar.hce = 		0x00000000;
 	  n->bar.utrlba = 	0x00000000;

@@ -255,7 +255,7 @@ typedef QTAILQ_HEAD(EHCIQueueHead, EHCIQueue) EHCIQueueHead;
 struct EHCIState {
     USBBus bus;
     DeviceState *device;
-    qemu_irq irq;
+    qemu_irq irq;		//interrupt define		aran-lq
     MemoryRegion mem;
     AddressSpace *as;
     MemoryRegion mem_caps;

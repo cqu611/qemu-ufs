@@ -205,7 +205,14 @@ enum UfsHcsShift {
 enum UFsHcs {
     UFS_UICCMD_READY         = 1 << HCS_UCRDY_SHIFT,
 	UFS_DP_READY         = 1 << HCS_DP_SHIFT,
+	UFS_UTRLRDY_READY	= 1 << HCS_UTRLRDY_SHIFT,
+	UFS_UTMRLRDY_READY	= 1 << HCS_UTMRLRDY_SHIFT,
 };
+
+enum UFsIs {
+    UFS_UCCS_COMPL         = 1 << IS_UCCS_SHIFT,
+};
+
 
 enum UfsHcsMask {
     HCS_DP_MASK           = 0x1,
@@ -770,6 +777,7 @@ typedef struct TaskManageList {
 #define TYPE_UFS "ufshcd"
 #define UFS(obj) \
         OBJECT_CHECK(UfsCtrl, (obj), TYPE_UFS)
+#define UFSINTR_MASK         0x71FFF			//interrupt mask define		aran-lq
 
 typedef struct LnvmCtrl {				
 	LnvmParams     params;
