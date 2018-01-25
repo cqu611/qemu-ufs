@@ -39,7 +39,11 @@ static void ufs_addr_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
         pci_dma_read(&n->parent_obj, addr, buf, size);
     
 }
-
+//Read the UTRD info by dma.
+static void ufs_dma_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
+{
+	pci_dma_read(&n->parent_obj, addr, buf, size);
+}
 /* update irq line */
 /* The function to update interrupt , aran-lq*/
 static inline void ufs_update_irq(UfsCtrl *n)
@@ -395,14 +399,27 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   return 0;
    }
  
+static void ufs_trl_process(UfsCtrl *n, int *tag)
+{
+	UtpTransferReqDesc buffer;
+	uint64_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
+	//uint32_t dma_addr = n->bar.utrlba;
+	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));
+	//pci_dma_read(&n->parent_obj, addr, buf, size);
+	printf("DW3 = %x\n",buffer.header.dword_3);
+	printf("DW2 = %x\n",buffer.header.dword_2);
+	printf("DW1 = %x\n",buffer.header.dword_1);
+	printf("DW0 = %x\n",buffer.header.dword_0);
+}
+   
 static void ufs_db_process(UfsCtrl *n)
 {
 	int tag[32] = {0};
 	if(!ufs_get_db_slot(n, tag))
 		printf("Error when getting db slot.\n");
-	for(int i =0; i < 32; i++)
+  	for(int i =0; i < 32; i++)
 		printf("tag_out[%d] = %d\n",i, tag[i]);
-	//UtpTransferReqDesc *utrd = n->bar.utrlba;
+	ufs_trl_process(n, tag);
 }
 
 static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
