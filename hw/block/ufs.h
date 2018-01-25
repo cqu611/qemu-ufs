@@ -106,6 +106,27 @@ typedef struct UfsBar {
 #define UFS_MASK(mask, offset)      ((mask) << (offset))
 #define UFS_BIT(x)  (1L << (x))
 
+/* UTP UPIU Transaction Codes Initiator to Target */
+enum {
+	UPIU_TRANSACTION_NOP_OUT	= 0x00,
+	UPIU_TRANSACTION_COMMAND	= 0x01,
+	UPIU_TRANSACTION_DATA_OUT	= 0x02,
+	UPIU_TRANSACTION_TASK_REQ	= 0x04,
+	UPIU_TRANSACTION_QUERY_REQ	= 0x16,
+};
+
+/* UTP UPIU Transaction Codes Target to Initiator */
+enum {
+	UPIU_TRANSACTION_NOP_IN		= 0x20,
+	UPIU_TRANSACTION_RESPONSE	= 0x21,
+	UPIU_TRANSACTION_DATA_IN	= 0x22,
+	UPIU_TRANSACTION_TASK_RSP	= 0x24,
+	UPIU_TRANSACTION_READY_XFER	= 0x31,
+	UPIU_TRANSACTION_QUERY_RSP	= 0x36,
+	UPIU_TRANSACTION_REJECT_UPIU	= 0x3F,
+};
+
+
 enum UfsCapShift {
     CAP_NUTRS_SHIFT      = 0,
     CAP_NORTT_SHIFT      = 8,
@@ -491,6 +512,22 @@ enum UfsStatusCodes {
     UFS_NO_COMPLETE            = 0xffff,
 };
 
+
+/* Overall command status values */
+enum {
+	OCS_SUCCESS			= 0x0,
+	OCS_INVALID_CMD_TABLE_ATTR	= 0x1,
+	OCS_INVALID_PRDT_ATTR		= 0x2,
+	OCS_MISMATCH_DATA_BUF_SIZE	= 0x3,
+	OCS_MISMATCH_RESP_UPIU_SIZE	= 0x4,
+	OCS_PEER_COMM_FAILURE		= 0x5,
+	OCS_ABORTED			= 0x6,
+	OCS_FATAL_ERROR			= 0x7,
+	OCS_INVALID_COMMAND_STATUS	= 0x0F,
+	MASK_OCS			= 0x0F,
+};
+
+
 /* UIC Config result code / Generic error code */
 enum {
     UIC_CMD_RESULT_SUCCESS          = 0x00,
@@ -535,6 +572,13 @@ enum {
     UTP_CMD_TYPE_DEV_MANAGE     = 0x2,
 };
 
+/**
+ * struct request_desc_header - Descriptor Header common to both UTRD and UTMRD
+ * @dword0: Descriptor Header DW0
+ * @dword1: Descriptor Header DW1
+ * @dword2: Descriptor Header DW2
+ * @dword3: Descriptor Header DW3
+ */
 typedef struct request_desc_header{
     uint32_t dword_0;
     uint32_t dword_1;

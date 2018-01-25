@@ -220,6 +220,35 @@ static uint16_t ufs_io_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
     }
 }
 
+/**
+ * ufs_get_db_slot - Get Door bell register 
+ * @hba: per-adapter instance
+ * @tag: pointer to variable with current set slot.
+ */
+static bool ufs_get_db_slot(struct UfsCtrl *n, int *tag_out)
+{	
+	int i = 0;
+	bool ret = false;
+	unsigned long tmp;
+	int shift_tag;
+	
+	if (!tag_out)
+		goto out;
+
+	tmp = n->bar.utrldbr;
+	do{
+		tag_out[i] = find_last_bit(&tmp, n->nutrs);
+		//printf("tag[%d]: %d\n",i,tag_out[i]);
+		shift_tag = 1 << tag_out[i];
+		tmp &= ~shift_tag;
+		i++;
+	} while (tag_out[i] < n->nutrs);
+	ret = true;
+out:
+	return ret;
+}
+
+
 static void ufs_tm_req_completion(TaskManageList *trl, UfsRequest *req)
 {
 	
@@ -359,8 +388,8 @@ static void ufs_clear_ctrl(UfsCtrl *n)
 static int ufs_start_ctrl(UfsCtrl *n)
    {
 	   printf("ufs start controller.\n");
-	   n->nutrs = 32;
-	   n->nutmrs = 8;
+	   n->nutrs = 0x20;//32
+	   n->nutmrs = 0x8;//8
 
 	   
 	   /*  some para init		aran-lq
@@ -373,6 +402,15 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   return 0;
    }
  
+static void ufs_db_process(UfsCtrl *n)
+{
+	int tag[32] = {0};
+	if(!ufs_get_db_slot(n, tag))
+		printf("Error when getting db slot.\n");
+	for(int i =0; i < 32; i++)
+		printf("tag_out[%d] = %d\n",i, tag[i]);
+	//UtpTransferReqDesc *utrd = n->bar.utrlba;
+}
 
 static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
 {
@@ -380,6 +418,7 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
     switch (offset) {
 		case 0x20:
 			printf("Interrupt Status write, the value was %x.\n",n->bar.is);
+			//IS is a RWC register.
 			n->bar.is &= ~(data & 0xffffffff);
 			ufs_update_irq(n);//Everytime host write IS with '1' will clear coresponding bit.
 			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
@@ -403,12 +442,24 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 					printf("HCS command not ready. \n");
 				}
 			}
+		//UTRIACR register
+		case 0x4C:
+			printf("UTP Transfer Request Interrupt Aggregation Control Register.\n");
+			n->bar.utriacr = data & 0xffffffff;
+			printf("UTRIACR register value is %x.\n",n->bar.utriacr);
 		case 0x50:
 			printf("UTP Transfer Request List Base Address.\n");
 			n->bar.utrlba = data & 0xffffffff;
 		case 0x54:
 			printf("UTP Transfer Request List Base Address Upper 32-Bits.\n");
 			n->bar.utrlbau = data & 0xffffffff;
+		//Door Bell
+		case 0x58:
+			printf("UTP Transfer Request List Door Bell Register.\n");
+			//UTRLDBR is a RWS register.
+			n->bar.utrldbr |= (data & 0xffffffff); 
+			printf("Door bell number is %x\n", n->bar.utrldbr);
+			ufs_db_process(n);
 		case 0x60:
 			printf("UTP Task Management Request List Run Stop register.\n");
 			n->bar.utrlrsr = data & 0xffffffff;
@@ -421,7 +472,6 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 		case 0x80:
 			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
 			n->bar.utmrlrsr = data & 0xffffffff;
-
 		case 0x90:
 			printf("UIC command writes. Value was %x.\n", n->bar.uiccmd);
 			n->bar.uiccmd = data & 0xffffffff;
@@ -461,7 +511,6 @@ static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
       trace_nvme_mmio_read(addr, size, val);
 
 	return val;
-    return 0;
 }
 
 
