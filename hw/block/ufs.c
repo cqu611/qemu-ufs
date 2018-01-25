@@ -422,10 +422,12 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 			n->bar.is &= ~(data & 0xffffffff);
 			ufs_update_irq(n);//Everytime host write IS with '1' will clear coresponding bit.
 			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
+			break;
 		case 0x24:
 			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
 			n->bar.ie = data & 0xffffffff;
 			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
+			break;
 		case 0x34:
 			printf("HCE write .\n");
 			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
@@ -442,17 +444,23 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 					printf("HCS command not ready. \n");
 				}
 			}
+			break;
 		//UTRIACR register
 		case 0x4C:
 			printf("UTP Transfer Request Interrupt Aggregation Control Register.\n");
 			n->bar.utriacr = data & 0xffffffff;
 			printf("UTRIACR register value is %x.\n",n->bar.utriacr);
+			break;
 		case 0x50:
 			printf("UTP Transfer Request List Base Address.\n");
 			n->bar.utrlba = data & 0xffffffff;
+			printf("UTRL base address is %x\n", n->bar.utrlba);
+			break;
 		case 0x54:
 			printf("UTP Transfer Request List Base Address Upper 32-Bits.\n");
 			n->bar.utrlbau = data & 0xffffffff;
+			printf("UTRL upper address is %x\n", n->bar.utrlbau);
+			break;
 		//Door Bell
 		case 0x58:
 			printf("UTP Transfer Request List Door Bell Register.\n");
@@ -460,38 +468,45 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 			n->bar.utrldbr |= (data & 0xffffffff); 
 			printf("Door bell number is %x\n", n->bar.utrldbr);
 			ufs_db_process(n);
+			break;
 		case 0x60:
-			printf("UTP Task Management Request List Run Stop register.\n");
+			printf("UTP Task Transfer Request List Run Stop register.\n");
 			n->bar.utrlrsr = data & 0xffffffff;
 		case 0x70:
 			printf("UTP Task Management Request List Base Address.\n");
 			n->bar.utmrlba = data & 0xffffffff;
+			break;
 		case 0x74:
 			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
 			n->bar.utmrlbau = data & 0xffffffff;
+			break;
 		case 0x80:
-			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
+			printf("UTP Task Management Request List Run Stop register.\n");
 			n->bar.utmrlrsr = data & 0xffffffff;
+			break;
 		case 0x90:
 			printf("UIC command writes. Value was %x.\n", n->bar.uiccmd);
 			n->bar.uiccmd = data & 0xffffffff;
 			if(n->bar.uiccmd == UIC_CMD_DME_LINK_STARTUP)//DME_LINK_STARTUP command	aran-lq
 				uic_cmd_complete(n);
 			printf("UIC command writes. Now value is %x.\n", n->bar.uiccmd);
+			break;
 		case 0x94:
 			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg1);
 			n->bar.ucmdarg1 = data & 0xffffffff;
 			printf("UIC arg1 writes. Now value is %x.\n", n->bar.ucmdarg1);
+			break;
 		case 0x98:
 			printf("UIC arg2 writes. Value was %x.\n", n->bar.ucmdarg2);
 			n->bar.ucmdarg2 = data & 0xffffffff;
 			printf("UIC arg2 writes. Now value is %x.\n", n->bar.ucmdarg3);
+			break;
 		case 0x9c:
 			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg3);
 			n->bar.ucmdarg3 = data & 0xffffffff;
 			printf("UIC arg3 writes. Now value is %x.\n", n->bar.ucmdarg3);
+			break;
 			
-		
 		default:
 				break;
 	}
