@@ -390,13 +390,6 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   printf("ufs start controller.\n");
 	   n->nutrs = 0x20;//32
 	   n->nutmrs = 0x8;//8
-
-	   
-	   /*  some para init		aran-lq
-	   n->page_bits = page_bits;
-	   n->page_size = 1 << n->page_bits;
-	   n->max_prp_ents = n->page_size / sizeof(uint64_t);
-	   */
 	   ufs_init_trl(n->trl, n, n->bar.utrlba);
 	   ufs_init_tml(n->tml, n, n->bar.utmrlba);
 	   return 0;
@@ -414,7 +407,6 @@ static void ufs_db_process(UfsCtrl *n)
 
 static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
 {
-	printf("ufs write bar.\n");
     switch (offset) {
 		case 0x20:
 			printf("Interrupt Status write, the value was %x.\n",n->bar.is);
@@ -428,6 +420,7 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 			n->bar.ie = data & 0xffffffff;
 			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
 			break;
+		//HCE register
 		case 0x34:
 			printf("HCE write .\n");
 			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
@@ -487,7 +480,8 @@ static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned siz
 		case 0x90:
 			printf("UIC command writes. Value was %x.\n", n->bar.uiccmd);
 			n->bar.uiccmd = data & 0xffffffff;
-			if(n->bar.uiccmd == UIC_CMD_DME_LINK_STARTUP)//DME_LINK_STARTUP command	aran-lq
+			//DME_LINK_STARTUP command	aran-lq
+			if(n->bar.uiccmd == UIC_CMD_DME_LINK_STARTUP)
 				uic_cmd_complete(n);
 			printf("UIC command writes. Now value is %x.\n", n->bar.uiccmd);
 			break;
