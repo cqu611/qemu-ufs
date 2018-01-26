@@ -428,8 +428,19 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   ufs_init_tml(n->tml, n, n->bar.utmrlba);
 	   return 0;
    }
- 
-static int ufshci_devcmd_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+   
+static int ufshci_query_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+{
+   printf("RESPONSE UPIU  DW2 = %x\n",rsp_buffer.header.dword_0);
+   rsp_buffer.header.dword_0 =req_buffer.header.dword_0 & 0xffffff00;
+   rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_QUERY_RSP;
+   printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
+   //dma write RESPONSE UPIU to host memory
+   ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
+   
+   return 0;
+}
+static int ufshci_nop_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
 {
 	rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_NOP_IN;
 	printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
@@ -456,9 +467,13 @@ static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
 	
 	switch(transaction_type){
 		case UPIU_TRANSACTION_NOP_OUT:
+			printf("ufshcd_nop_cmd sendback!\n");
+			if(ufshci_nop_sendback(n, rsp_dma_addr, rsp_buffer, req_buffer))
+				perror("dev commmand sendback error");;
+			break;
 		case UPIU_TRANSACTION_QUERY_REQ:
-			printf("ufshcd_dev_cmd sendback!\n");
-			if(ufshci_devcmd_sendback(n, rsp_dma_addr, rsp_buffer, req_buffer))
+			printf("ufshcd_query_cmd sendback!\n");
+			if(ufshci_query_sendback(n, rsp_dma_addr, rsp_buffer, req_buffer))
 				perror("dev commmand sendback error");;
 			break;
 		case UPIU_TRANSACTION_COMMAND:
@@ -477,19 +492,12 @@ static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
 
 static void ufs_trl_process(UfsCtrl *n, int *tag)
 {
+
 	UtpTransferReqDesc buffer;
 	uint64_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
-	//uint32_t dma_addr = n->bar.utrlba;
+	//read current UTRD into buffer by DMA
 	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));
 	//pci_dma_read(&n->parent_obj, addr, buf, size);
-	printf("Command desc base addr low = %x\n",buffer.command_desc_base_addr_lo);
-	printf("Command desc base addr high = %x\n",buffer.command_desc_base_addr_hi);
-	printf("Command desc response length = %x\n",buffer.response_upiu_length);
-	printf("Command desc response offset = %x\n",buffer.response_upiu_offset);
-	printf("DW3 = %x\n",buffer.header.dword_3);
-	printf("DW2 = %x\n",buffer.header.dword_2);
-	printf("DW1 = %x\n",buffer.header.dword_1);
-	printf("DW0 = %x\n",buffer.header.dword_0);
 	
 	ufs_ucd_process(n, &buffer);
 	ufs_sendback_tail(n, buffer, dma_addr, tag[0]);
@@ -500,8 +508,9 @@ static void ufs_db_process(UfsCtrl *n)
 	int tag[32] = {0};
 	if(!ufs_get_db_slot(n, tag))
 		printf("Error when getting db slot.\n");
-  	for(int i =0; i < 32; i++)
-		printf("tag_out[%d] = %d\n",i, tag[i]);
+	// print slot array tag[]
+  	//for(int i =0; i < 32; i++)
+		//printf("tag_out[%d] = %d\n",i, tag[i]);
 	ufs_trl_process(n, tag);
 }
 
