@@ -4,6 +4,13 @@
 #include <qemu/bitops.h>
 
 
+#define UPIU_HEADER_DWORD(byte3, byte2, byte1, byte0)\
+cpu_to_be32((byte3 << 24) | (byte2 << 16) |\
+(byte1 << 8) | (byte0))
+
+#define MAX_CDB_SIZE	16
+#define RESPONSE_UPIU_SENSE_DATA_LENGTH	18
+
 enum {
     TASK_REQ_UPIU_SIZE_DWORDS   = 8,
     TASK_RSP_UPIU_SIZE_DWORDS   = 8,
@@ -124,6 +131,7 @@ enum {
 	UPIU_TRANSACTION_READY_XFER	= 0x31,
 	UPIU_TRANSACTION_QUERY_RSP	= 0x36,
 	UPIU_TRANSACTION_REJECT_UPIU	= 0x3F,
+	UPIU_TRANSACTION_MASK = 0xFF,
 };
 
 
@@ -232,6 +240,7 @@ enum UFsHcs {
 
 enum UFsIs {
     UFS_UCCS_COMPL         = 1 << IS_UCCS_SHIFT,
+	UFS_UTRCS_COMPL		   = 1 << IS_UTRCS_SHIFT,
 };
 
 
@@ -560,10 +569,102 @@ enum {
     INTERRUPT_MASK_ALL_VER_21   = 0x71FFF,
 };
 
+/**
+ * struct utp_upiu_query - upiu request buffer structure for
+ * query request.
+ * @opcode: command to perform B-0
+ * @idn: a value that indicates the particular type of data B-1
+ * @index: Index to further identify data B-2
+ * @selector: Index to further identify data B-3
+ * @reserved_osf: spec reserved field B-4,5
+ * @length: number of descriptor bytes to read/write B-6,7
+ * @value: Attribute value to be written DW-5
+ * @reserved: spec reserved DW-6,7
+ */
+struct utp_upiu_query {
+	uint8_t opcode;
+	uint8_t idn;
+	uint8_t index;
+	uint8_t selector;
+	uint16_t reserved_osf;
+	uint16_t length;
+	uint32_t value;
+	uint32_t reserved[2];
+};
 
 /*
  * Request Descriptor Definitions
  */
+
+/**
+ * struct utp_upiu_header - UPIU header structure
+ * @dword_0: UPIU header DW-0
+ * @dword_1: UPIU header DW-1
+ * @dword_2: UPIU header DW-2
+ */
+struct utp_upiu_header {
+	uint32_t dword_0;
+	uint32_t dword_1;
+	uint32_t dword_2;
+};
+
+
+/**
+ * struct utp_upiu_cmd - Command UPIU structure
+ * @data_transfer_len: Data Transfer Length DW-3
+ * @cdb: Command Descriptor Block CDB DW-4 to DW-7
+ */
+struct utp_upiu_cmd {
+	uint32_t exp_data_transfer_len;
+	uint8_t cdb[MAX_CDB_SIZE];
+};
+
+
+/**
+ * struct utp_upiu_req - general upiu request structure
+ * @header:UPIU header structure DW-0 to DW-2
+ * @sc: fields structure for scsi command DW-3 to DW-7
+ * @qr: fields structure for query request DW-3 to DW-7
+ */
+typedef struct utp_upiu_req {
+	struct utp_upiu_header header;
+	union {
+		struct utp_upiu_cmd sc;
+		struct utp_upiu_query qr;
+	};
+}utp_upiu_req;
+
+
+
+/**
+ * struct utp_cmd_rsp - Response UPIU structure
+ * @residual_transfer_count: Residual transfer count DW-3
+ * @reserved: Reserved double words DW-4 to DW-7
+ * @sense_data_len: Sense data length DW-8 U16
+ * @sense_data: Sense data field DW-8 to DW-12
+ */
+struct utp_cmd_rsp {
+	uint32_t residual_transfer_count;
+	uint32_t reserved[4];
+	uint16_t sense_data_len;
+	uint8_t sense_data[RESPONSE_UPIU_SENSE_DATA_LENGTH];
+};
+
+/**
+ * struct utp_upiu_rsp - general upiu response structure
+ * @header: UPIU header structure DW-0 to DW-2
+ * @sr: fields structure for scsi command DW-3 to DW-12
+ * @qr: fields structure for query request DW-3 to DW-7
+ */
+typedef struct utp_upiu_rsp {
+	struct utp_upiu_header header;
+	union {
+		struct utp_cmd_rsp sr;
+		struct utp_upiu_query qr;
+	};
+}utp_upiu_rsp;
+
+
 
 /* Transfer request command type */
 enum {

@@ -36,7 +36,7 @@
 
 static void ufs_addr_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
 {
-        pci_dma_read(&n->parent_obj, addr, buf, size);
+    pci_dma_read(&n->parent_obj, addr, buf, size);
     
 }
 //Read the UTRD info by dma.
@@ -44,6 +44,13 @@ static void ufs_dma_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
 {
 	pci_dma_read(&n->parent_obj, addr, buf, size);
 }
+
+//Write the UTRD info by dma.
+static void ufs_dma_write(UfsCtrl *n, hwaddr addr, void *buf, int size)
+{
+	pci_dma_write(&n->parent_obj, addr, buf, size);
+}
+
 /* update irq line */
 /* The function to update interrupt , aran-lq*/
 static inline void ufs_update_irq(UfsCtrl *n)
@@ -386,8 +393,31 @@ static void uic_cmd_complete(UfsCtrl *n)
 static void ufs_clear_ctrl(UfsCtrl *n)
    {
 
-   }                                 
+   }
    
+//handle cmd sendback tail like UTRD OCS_SUCCESS, IS set.
+static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint64_t dma_addr, int tag)
+{
+	buffer.header.dword_2 &= OCS_SUCCESS;
+	//write the OCS of UTRD 
+	printf("NOW Ocs IS %x\n", buffer.header.dword_2);
+	ufs_dma_write(n, dma_addr, (void*)&buffer, sizeof(buffer));
+	//write UTRCS bit in IS register
+	n->bar.is |= UFS_UTRCS_COMPL;
+	printf("DB IS %x\n",n->bar.utrldbr);
+	//DB register update
+	n->bar.utrldbr &= ~(1 << tag);
+	printf("now DB IS %x\n",n->bar.utrldbr);
+	//update Interrupt
+	ufs_update_irq(n);
+	
+	
+}
+
+static uint32_t ufshcd_get_tr_type(utp_upiu_req req)
+{
+	return (req.header.dword_0) & UPIU_TRANSACTION_MASK;
+}
 
 static int ufs_start_ctrl(UfsCtrl *n)
    {
@@ -399,6 +429,52 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   return 0;
    }
  
+static int ufshci_devcmd_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+{
+	rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_NOP_IN;
+	printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
+	//dma write RESPONSE UPIU to host memory
+	ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
+	
+	return 0;
+}
+
+//handle UTP command descriptors 
+static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
+{
+	int transaction_type;
+	utp_upiu_req req_buffer;
+	utp_upiu_rsp rsp_buffer;
+	//Command UPIU dma address
+	uint64_t req_dma_addr = buffer->command_desc_base_addr_lo;
+	//Response UPIU dma address
+	uint64_t rsp_dma_addr = req_dma_addr + buffer->response_upiu_offset * sizeof(uint32_t);
+	ufs_dma_read(n, req_dma_addr, (void*)&req_buffer, sizeof(req_buffer));
+	ufs_dma_read(n, rsp_dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
+	//get transaction type from request UPIU
+	transaction_type = ufshcd_get_tr_type(req_buffer);
+	
+	switch(transaction_type){
+		case UPIU_TRANSACTION_NOP_OUT:
+		case UPIU_TRANSACTION_QUERY_REQ:
+			printf("ufshcd_dev_cmd sendback!\n");
+			if(ufshci_devcmd_sendback(n, rsp_dma_addr, rsp_buffer, req_buffer))
+				perror("dev commmand sendback error");;
+			break;
+		case UPIU_TRANSACTION_COMMAND:
+			break;
+		case UPIU_TRANSACTION_DATA_OUT:
+			break;
+		case UPIU_TRANSACTION_TASK_REQ:
+			break;
+
+		default:
+			break;
+	}
+
+}
+
+
 static void ufs_trl_process(UfsCtrl *n, int *tag)
 {
 	UtpTransferReqDesc buffer;
@@ -406,10 +482,17 @@ static void ufs_trl_process(UfsCtrl *n, int *tag)
 	//uint32_t dma_addr = n->bar.utrlba;
 	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));
 	//pci_dma_read(&n->parent_obj, addr, buf, size);
+	printf("Command desc base addr low = %x\n",buffer.command_desc_base_addr_lo);
+	printf("Command desc base addr high = %x\n",buffer.command_desc_base_addr_hi);
+	printf("Command desc response length = %x\n",buffer.response_upiu_length);
+	printf("Command desc response offset = %x\n",buffer.response_upiu_offset);
 	printf("DW3 = %x\n",buffer.header.dword_3);
 	printf("DW2 = %x\n",buffer.header.dword_2);
 	printf("DW1 = %x\n",buffer.header.dword_1);
 	printf("DW0 = %x\n",buffer.header.dword_0);
+	
+	ufs_ucd_process(n, &buffer);
+	ufs_sendback_tail(n, buffer, dma_addr, tag[0]);
 }
    
 static void ufs_db_process(UfsCtrl *n)
