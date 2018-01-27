@@ -61,7 +61,7 @@ static int usb_ehci_pci_initfn(PCIDevice *dev)
     pci_conf[0x6e] = 0x00;
     pci_conf[0x6f] = 0xc0;  /* USBLEFCTLSTS */
 
-    s->irq = pci_allocate_irq(dev);
+    s->irq = pci_allocate_irq(dev);			//allocate interrupt 	aran-lq
     s->as = pci_get_address_space(dev);
 
     usb_ehci_realize(s, DEVICE(dev), NULL);
@@ -86,7 +86,8 @@ static void usb_ehci_pci_init(Object *obj)
     if (!dc->hotpluggable) {
         s->companion_enable = true;
     }
-
+	
+	//call function in hcd-ehci.c
     usb_ehci_init(s, DEVICE(obj));
 }
 

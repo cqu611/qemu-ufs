@@ -4,6 +4,13 @@
 #include <qemu/bitops.h>
 
 
+#define UPIU_HEADER_DWORD(byte3, byte2, byte1, byte0)\
+cpu_to_be32((byte3 << 24) | (byte2 << 16) |\
+(byte1 << 8) | (byte0))
+
+#define MAX_CDB_SIZE	16
+#define RESPONSE_UPIU_SENSE_DATA_LENGTH	18
+
 enum {
     TASK_REQ_UPIU_SIZE_DWORDS   = 8,
     TASK_RSP_UPIU_SIZE_DWORDS   = 8,
@@ -53,7 +60,7 @@ typedef struct UfsBar {
     uint32_t    rsvd0;		
     uint32_t    vs;	
     uint32_t    rsvd1;		
-    uint32_t    hcpid;		
+    uint32_t    hcdid;		
     uint32_t    hcpmid;		
     uint32_t    ahit;			
     uint32_t    rsvd2;
@@ -64,7 +71,7 @@ typedef struct UfsBar {
     uint64_t    rsvd3;		
     uint32_t    hcs;					
     uint32_t    hce;		
-    uint32_t    uevpa;		
+    uint32_t    uecpa;		
     uint32_t    uecdl;
     uint32_t    uecn;
     uint32_t    uect;
@@ -106,25 +113,59 @@ typedef struct UfsBar {
 #define UFS_MASK(mask, offset)      ((mask) << (offset))
 #define UFS_BIT(x)  (1L << (x))
 
+/* UTP UPIU Transaction Codes Initiator to Target */
+enum {
+	UPIU_TRANSACTION_NOP_OUT	= 0x00,
+	UPIU_TRANSACTION_COMMAND	= 0x01,
+	UPIU_TRANSACTION_DATA_OUT	= 0x02,
+	UPIU_TRANSACTION_TASK_REQ	= 0x04,
+	UPIU_TRANSACTION_QUERY_REQ	= 0x16,
+};
+
+/* UTP UPIU Transaction Codes Target to Initiator */
+enum {
+	UPIU_TRANSACTION_NOP_IN		= 0x20,
+	UPIU_TRANSACTION_RESPONSE	= 0x21,
+	UPIU_TRANSACTION_DATA_IN	= 0x22,
+	UPIU_TRANSACTION_TASK_RSP	= 0x24,
+	UPIU_TRANSACTION_READY_XFER	= 0x31,
+	UPIU_TRANSACTION_QUERY_RSP	= 0x36,
+	UPIU_TRANSACTION_REJECT_UPIU	= 0x3F,
+	UPIU_TRANSACTION_MASK = 0xFF,
+};
+
+
 enum UfsCapShift {
     CAP_NUTRS_SHIFT      = 0,
     CAP_NORTT_SHIFT      = 8,
-    CAP_NUTMRS_SHIFT     = 18,
+    CAP_NUTMRS_SHIFT     = 16,
     CAP_AUTOH8_SHIFT     = 23,
     CAP_64AS_SHIFT       = 24,
     CAP_OODDS_SHIFT      = 25,    
     CAP_UICDMETMS_SHIFT  = 26,
-    CAP_CS_SHIFT         = 33,
+    CAP_CS_SHIFT         = 28,
 };
 
 enum UfsCapMask {
     CAP_NUTRS_MASK          = 0x1F,
+	CAP_NORTT_MASK          = 0xFF,
     CAP_NUTMRS_MASK         = 0x7,
     CAP_64AS_MASK          = 0x1,
     CAP_OODDS_MAKS          = 0x1,
     CAP_UICDMETMS_MASK      = 0x1,
 };
 
+#define UFS_CAP_SET_NUTRS(cap, val)   (cap |= (uint32_t)(val & CAP_NUTRS_MASK ) \
+		<< CAP_NUTRS_SHIFT)
+
+#define UFS_CAP_SET_NUTMRS(cap, val)   (cap |= (uint32_t)(val & CAP_NUTMRS_MASK ) \
+		<< CAP_NUTMRS_SHIFT)
+
+#define UFS_CAP_SET_NORTT(cap, val)   (cap |= (uint32_t)(val & CAP_NORTT_MASK ) \
+		<< CAP_NORTT_SHIFT)
+
+#define UFS_CAP_SET_64AS(cap, val)   (cap |= (uint32_t)(val & CAP_64AS_MASK ) \
+		<< CAP_64AS_SHIFT)
 enum UfsVerShift {
     VER_VS_SHIFT      = 0,
     VER_MNR_SHIFT     = 4,
@@ -191,9 +232,17 @@ enum UfsHcsShift {
 };
 
 enum UFsHcs {
-    UFs_CMD_READY         = 1 << HCS_UCRDY_SHIFT,
-	UFs_CMD_FAILED         = 1 << HCS_DP_SHIFT,
+    UFS_UICCMD_READY         = 1 << HCS_UCRDY_SHIFT,
+	UFS_DP_READY         = 1 << HCS_DP_SHIFT,
+	UFS_UTRLRDY_READY	= 1 << HCS_UTRLRDY_SHIFT,
+	UFS_UTMRLRDY_READY	= 1 << HCS_UTMRLRDY_SHIFT,
 };
+
+enum UFsIs {
+    UFS_UCCS_COMPL         = 1 << IS_UCCS_SHIFT,
+	UFS_UTRCS_COMPL		   = 1 << IS_UTRCS_SHIFT,
+};
+
 
 enum UfsHcsMask {
     HCS_DP_MASK           = 0x1,
@@ -205,6 +254,7 @@ enum UfsHcsMask {
 };
 
 #define UFS_HCE_EN(cap)  (((cap) >> HCE_HCE_SHIFT)   & HCE_HCE_MASK)
+#define UFS_HCS_UCRDY_EN(hcs) ( hcs = 0x00000008)
 
 /* UIC Power Mode Change Request Status */
 enum {
@@ -471,6 +521,22 @@ enum UfsStatusCodes {
     UFS_NO_COMPLETE            = 0xffff,
 };
 
+
+/* Overall command status values */
+enum {
+	OCS_SUCCESS			= 0x0,
+	OCS_INVALID_CMD_TABLE_ATTR	= 0x1,
+	OCS_INVALID_PRDT_ATTR		= 0x2,
+	OCS_MISMATCH_DATA_BUF_SIZE	= 0x3,
+	OCS_MISMATCH_RESP_UPIU_SIZE	= 0x4,
+	OCS_PEER_COMM_FAILURE		= 0x5,
+	OCS_ABORTED			= 0x6,
+	OCS_FATAL_ERROR			= 0x7,
+	OCS_INVALID_COMMAND_STATUS	= 0x0F,
+	MASK_OCS			= 0x0F,
+};
+
+
 /* UIC Config result code / Generic error code */
 enum {
     UIC_CMD_RESULT_SUCCESS          = 0x00,
@@ -503,10 +569,102 @@ enum {
     INTERRUPT_MASK_ALL_VER_21   = 0x71FFF,
 };
 
+/**
+ * struct utp_upiu_query - upiu request buffer structure for
+ * query request.
+ * @opcode: command to perform B-0
+ * @idn: a value that indicates the particular type of data B-1
+ * @index: Index to further identify data B-2
+ * @selector: Index to further identify data B-3
+ * @reserved_osf: spec reserved field B-4,5
+ * @length: number of descriptor bytes to read/write B-6,7
+ * @value: Attribute value to be written DW-5
+ * @reserved: spec reserved DW-6,7
+ */
+struct utp_upiu_query {
+	uint8_t opcode;
+	uint8_t idn;
+	uint8_t index;
+	uint8_t selector;
+	uint16_t reserved_osf;
+	uint16_t length;
+	uint32_t value;
+	uint32_t reserved[2];
+};
 
 /*
  * Request Descriptor Definitions
  */
+
+/**
+ * struct utp_upiu_header - UPIU header structure
+ * @dword_0: UPIU header DW-0
+ * @dword_1: UPIU header DW-1
+ * @dword_2: UPIU header DW-2
+ */
+struct utp_upiu_header {
+	uint32_t dword_0;
+	uint32_t dword_1;
+	uint32_t dword_2;
+};
+
+
+/**
+ * struct utp_upiu_cmd - Command UPIU structure
+ * @data_transfer_len: Data Transfer Length DW-3
+ * @cdb: Command Descriptor Block CDB DW-4 to DW-7
+ */
+struct utp_upiu_cmd {
+	uint32_t exp_data_transfer_len;
+	uint8_t cdb[MAX_CDB_SIZE];
+};
+
+
+/**
+ * struct utp_upiu_req - general upiu request structure
+ * @header:UPIU header structure DW-0 to DW-2
+ * @sc: fields structure for scsi command DW-3 to DW-7
+ * @qr: fields structure for query request DW-3 to DW-7
+ */
+typedef struct utp_upiu_req {
+	struct utp_upiu_header header;
+	union {
+		struct utp_upiu_cmd sc;
+		struct utp_upiu_query qr;
+	};
+}utp_upiu_req;
+
+
+
+/**
+ * struct utp_cmd_rsp - Response UPIU structure
+ * @residual_transfer_count: Residual transfer count DW-3
+ * @reserved: Reserved double words DW-4 to DW-7
+ * @sense_data_len: Sense data length DW-8 U16
+ * @sense_data: Sense data field DW-8 to DW-12
+ */
+struct utp_cmd_rsp {
+	uint32_t residual_transfer_count;
+	uint32_t reserved[4];
+	uint16_t sense_data_len;
+	uint8_t sense_data[RESPONSE_UPIU_SENSE_DATA_LENGTH];
+};
+
+/**
+ * struct utp_upiu_rsp - general upiu response structure
+ * @header: UPIU header structure DW-0 to DW-2
+ * @sr: fields structure for scsi command DW-3 to DW-12
+ * @qr: fields structure for query request DW-3 to DW-7
+ */
+typedef struct utp_upiu_rsp {
+	struct utp_upiu_header header;
+	union {
+		struct utp_cmd_rsp sr;
+		struct utp_upiu_query qr;
+	};
+}utp_upiu_rsp;
+
+
 
 /* Transfer request command type */
 enum {
@@ -515,6 +673,13 @@ enum {
     UTP_CMD_TYPE_DEV_MANAGE     = 0x2,
 };
 
+/**
+ * struct request_desc_header - Descriptor Header common to both UTRD and UTMRD
+ * @dword0: Descriptor Header DW0
+ * @dword1: Descriptor Header DW1
+ * @dword2: Descriptor Header DW2
+ * @dword3: Descriptor Header DW3
+ */
 typedef struct request_desc_header{
     uint32_t dword_0;
     uint32_t dword_1;
@@ -757,6 +922,7 @@ typedef struct TaskManageList {
 #define TYPE_UFS "ufshcd"
 #define UFS(obj) \
         OBJECT_CHECK(UfsCtrl, (obj), TYPE_UFS)
+#define UFSINTR_MASK         0x71FFF			//interrupt mask define		aran-lq
 
 typedef struct LnvmCtrl {				
 	LnvmParams     params;
@@ -786,6 +952,8 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
     MemoryRegion ctrl_mem;
     UfsBar       bar;					//register		aran-lq
     BlockConf    conf;
+	
+	qemu_irq irq;						//interrupt request	aran-lq
 
     time_t      start_time;
     uint16_t    temperature;
@@ -820,8 +988,7 @@ typedef struct UfsCtrl {				//nvme controller 	aran-lq
 
 
 
-//static void ufs_init_pci(UfsCtrl *n)__attribute__ ((unused));
-//static void ufs_init_ctrl(UfsCtrl *n)__attribute__ ((unused));
+
 static int lnvm_init(UfsCtrl *n)__attribute__ ((unused));
 static int lnvm_init_meta(LnvmCtrl *n)__attribute__ ((unused));
 static void lnvm_init_id_ctrl(LnvmCtrl *n)__attribute__ ((unused));

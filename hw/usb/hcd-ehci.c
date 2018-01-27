@@ -194,6 +194,7 @@ static inline void ehci_clear_usbsts(EHCIState *s, int mask)
 }
 
 /* update irq line */
+/* The function to update interrupt */
 static inline void ehci_update_irq(EHCIState *s)
 {
     int level = 0;

@@ -36,9 +36,34 @@
 
 static void ufs_addr_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
 {
-        pci_dma_read(&n->parent_obj, addr, buf, size);
+    pci_dma_read(&n->parent_obj, addr, buf, size);
     
 }
+//Read the UTRD info by dma.
+static void ufs_dma_read(UfsCtrl *n, hwaddr addr, void *buf, int size)
+{
+	pci_dma_read(&n->parent_obj, addr, buf, size);
+}
+
+//Write the UTRD info by dma.
+static void ufs_dma_write(UfsCtrl *n, hwaddr addr, void *buf, int size)
+{
+	pci_dma_write(&n->parent_obj, addr, buf, size);
+}
+
+/* update irq line */
+/* The function to update interrupt , aran-lq*/
+static inline void ufs_update_irq(UfsCtrl *n)
+{
+    int level = 0;
+
+    if ((n->bar.is & UFSINTR_MASK) & n->bar.ie) {
+        level = 1;
+    }
+
+    qemu_set_irq(n->irq, level);
+}
+
 
 static void ufs_update_trl_slot(const TransReqList *trl)
 {
@@ -206,6 +231,35 @@ static uint16_t ufs_io_cmd(UfsCtrl *n, CmdUPIU *cmd, UfsRequest *req)
     }
 }
 
+/**
+ * ufs_get_db_slot - Get Door bell register 
+ * @hba: per-adapter instance
+ * @tag: pointer to variable with current set slot.
+ */
+static bool ufs_get_db_slot(struct UfsCtrl *n, int *tag_out)
+{	
+	int i = 0;
+	bool ret = false;
+	unsigned long tmp;
+	int shift_tag;
+	
+	if (!tag_out)
+		goto out;
+
+	tmp = n->bar.utrldbr;
+	do{
+		tag_out[i] = find_last_bit(&tmp, n->nutrs);
+		//printf("tag[%d]: %d\n",i,tag_out[i]);
+		shift_tag = 1 << tag_out[i];
+		tmp &= ~shift_tag;
+		i++;
+	} while (tag_out[i] < n->nutrs);
+	ret = true;
+out:
+	return ret;
+}
+
+
 static void ufs_tm_req_completion(TaskManageList *trl, UfsRequest *req)
 {
 	
@@ -321,45 +375,241 @@ static uint16_t ufs_init_tml(TaskManageList *tml, UfsCtrl *n, uint64_t dma_addr)
 
 	return 0;
 }
+static void uic_cmd_complete(UfsCtrl *n)
+{
+	printf("UIC command complete procedure. \n");
+	n->bar.ucmdarg2 &= 0xffffff00;
+	n->bar.is |= UFS_UCCS_COMPL;
+	//device present
+	n->bar.hcs|= UFS_DP_READY;
+	n->bar.hcs|= UFS_UTRLRDY_READY;
+	n->bar.hcs|= UFS_UTMRLRDY_READY;                              
+	ufs_update_irq(n);
+	
+	//qemu_set_irq(n->irq, 1);
+	//qemu_set_irq(n->irq, 0);
+}
 
 static void ufs_clear_ctrl(UfsCtrl *n)
    {
 
    }
    
+//handle cmd sendback tail like UTRD OCS_SUCCESS, IS set.
+static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint64_t dma_addr, int tag)
+{
+	buffer.header.dword_2 &= OCS_SUCCESS;
+	//write the OCS of UTRD 
+	printf("NOW Ocs IS %x\n", buffer.header.dword_2);
+	ufs_dma_write(n, dma_addr, (void*)&buffer, sizeof(buffer));
+	//write UTRCS bit in IS register
+	n->bar.is |= UFS_UTRCS_COMPL;
+	printf("DB IS %x\n",n->bar.utrldbr);
+	//DB register update
+	n->bar.utrldbr &= ~(1 << tag);
+	printf("now DB IS %x\n",n->bar.utrldbr);
+	//update Interrupt
+	ufs_update_irq(n);
+	
+	
+}
+
+static uint32_t ufshcd_get_tr_type(utp_upiu_req req)
+{
+	return (req.header.dword_0) & UPIU_TRANSACTION_MASK;
+}
 
 static int ufs_start_ctrl(UfsCtrl *n)
    {
 	   printf("ufs start controller.\n");
-	   n->nutrs = 32;
-	   n->nutmrs = 8;
-
-	   
-	   /*  some para init		aran-lq
-	   n->page_bits = page_bits;
-	   n->page_size = 1 << n->page_bits;
-	   n->max_prp_ents = n->page_size / sizeof(uint64_t);
-	   */
+	   n->nutrs = 0x20;//32
+	   n->nutmrs = 0x8;//8
 	   ufs_init_trl(n->trl, n, n->bar.utrlba);
 	   ufs_init_tml(n->tml, n, n->bar.utmrlba);
 	   return 0;
    }
- 
+   
+static int ufshci_query_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+{
+   printf("RESPONSE UPIU  DW2 = %x\n",rsp_buffer.header.dword_0);
+   rsp_buffer.header.dword_0 =req_buffer.header.dword_0 & 0xffffff00;
+   rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_QUERY_RSP;
+   printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
+   //dma write RESPONSE UPIU to host memory
+   ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
+   
+   return 0;
+}
+static int ufshci_nop_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+{
+	rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_NOP_IN;
+	printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
+	//dma write RESPONSE UPIU to host memory
+	ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
+	
+	return 0;
+}
+
+//handle UTP command descriptors 
+static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
+{
+	int transaction_type;
+	utp_upiu_req req_buffer;
+	utp_upiu_rsp rsp_buffer;
+	//Command UPIU dma address
+	uint64_t req_dma_addr = buffer->command_desc_base_addr_lo;
+	//Response UPIU dma address
+	uint64_t rsp_dma_addr = req_dma_addr + buffer->response_upiu_offset * sizeof(uint32_t);
+	ufs_dma_read(n, req_dma_addr, (void*)&req_buffer, sizeof(req_buffer));
+	ufs_dma_read(n, rsp_dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
+	//get transaction type from request UPIU
+	transaction_type = ufshcd_get_tr_type(req_buffer);
+	
+	switch(transaction_type){
+		case UPIU_TRANSACTION_NOP_OUT:
+			printf("ufshcd_nop_cmd sendback!\n");
+			if(ufshci_nop_sendback(n, rsp_dma_addr, rsp_buffer, req_buffer))
+				perror("dev commmand sendback error");;
+			break;
+		case UPIU_TRANSACTION_QUERY_REQ:
+			printf("ufshcd_query_cmd sendback!\n");
+			if(ufshci_query_sendback(n, rsp_dma_addr, rsp_buffer, req_buffer))
+				perror("dev commmand sendback error");;
+			break;
+		case UPIU_TRANSACTION_COMMAND:
+			break;
+		case UPIU_TRANSACTION_DATA_OUT:
+			break;
+		case UPIU_TRANSACTION_TASK_REQ:
+			break;
+
+		default:
+			break;
+	}
+
+}
+
+
+static void ufs_trl_process(UfsCtrl *n, int *tag)
+{
+
+	UtpTransferReqDesc buffer;
+	uint64_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
+	//read current UTRD into buffer by DMA
+	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));
+	//pci_dma_read(&n->parent_obj, addr, buf, size);
+	
+	ufs_ucd_process(n, &buffer);
+	ufs_sendback_tail(n, buffer, dma_addr, tag[0]);
+}
+   
+static void ufs_db_process(UfsCtrl *n)
+{
+	int tag[32] = {0};
+	if(!ufs_get_db_slot(n, tag))
+		printf("Error when getting db slot.\n");
+	// print slot array tag[]
+  	//for(int i =0; i < 32; i++)
+		//printf("tag_out[%d] = %d\n",i, tag[i]);
+	ufs_trl_process(n, tag);
+}
 
 static void ufs_write_bar(UfsCtrl *n, hwaddr offset, uint64_t data, unsigned size)
 {
-	printf("ufs write bar.\n");
     switch (offset) {
+		case 0x20:
+			printf("Interrupt Status write, the value was %x.\n",n->bar.is);
+			//IS is a RWC register.
+			n->bar.is &= ~(data & 0xffffffff);
+			ufs_update_irq(n);//Everytime host write IS with '1' will clear coresponding bit.
+			printf("Interrupt Status write, now value is %x.\n",n->bar.is);
+			break;
+		case 0x24:
+			printf("Interrupt Enable write, value was %x.\n",n->bar.ie);
+			n->bar.ie = data & 0xffffffff;
+			printf("Interrupt Enable write, now value is %x.\n",n->bar.ie);
+			break;
+		//HCE register
 		case 0x34:
+			printf("HCE write .\n");
 			if ((UFS_HCE_EN(data) && !UFS_HCE_EN(n->bar.hce))){
-			n->bar.hce = data;
-			if(ufs_start_ctrl(n)){
-				n->bar.hcs = UFs_CMD_READY;
-			}else {
-				n->bar.hcs = UFs_CMD_FAILED;
+				printf("HCE was %x.\n",n->bar.hce);
+				n->bar.hce = data & 0xffffffff;
+				printf("HCE is %x.\n",n->bar.hce);
+				//UIC command ready.
+				n->bar.hcs = UFS_UICCMD_READY;
+				
+				if(!ufs_start_ctrl(n)){
+
+					printf("HCS command  ready. \n");
+				}else {
+					printf("HCS command not ready. \n");
+				}
 			}
-			}
-		
+			break;
+		//UTRIACR register
+		case 0x4C:
+			printf("UTP Transfer Request Interrupt Aggregation Control Register.\n");
+			n->bar.utriacr = data & 0xffffffff;
+			printf("UTRIACR register value is %x.\n",n->bar.utriacr);
+			break;
+		case 0x50:
+			printf("UTP Transfer Request List Base Address.\n");
+			n->bar.utrlba = data & 0xffffffff;
+			printf("UTRL base address is %x\n", n->bar.utrlba);
+			break;
+		case 0x54:
+			printf("UTP Transfer Request List Base Address Upper 32-Bits.\n");
+			n->bar.utrlbau = data & 0xffffffff;
+			printf("UTRL upper address is %x\n", n->bar.utrlbau);
+			break;
+		//Door Bell
+		case 0x58:
+			printf("UTP Transfer Request List Door Bell Register.\n");
+			//UTRLDBR is a RWS register.
+			n->bar.utrldbr |= (data & 0xffffffff); 
+			printf("Door bell number is %x\n", n->bar.utrldbr);
+			ufs_db_process(n);
+			break;
+		case 0x60:
+			printf("UTP Task Transfer Request List Run Stop register.\n");
+			n->bar.utrlrsr = data & 0xffffffff;
+		case 0x70:
+			printf("UTP Task Management Request List Base Address.\n");
+			n->bar.utmrlba = data & 0xffffffff;
+			break;
+		case 0x74:
+			printf("UTP Task Management Request List Base Address Upper 32-Bits.\n");
+			n->bar.utmrlbau = data & 0xffffffff;
+			break;
+		case 0x80:
+			printf("UTP Task Management Request List Run Stop register.\n");
+			n->bar.utmrlrsr = data & 0xffffffff;
+			break;
+		case 0x90:
+			printf("UIC command writes. Value was %x.\n", n->bar.uiccmd);
+			n->bar.uiccmd = data & 0xffffffff;
+			//DME_LINK_STARTUP command	aran-lq
+			if(n->bar.uiccmd == UIC_CMD_DME_LINK_STARTUP)
+				uic_cmd_complete(n);
+			printf("UIC command writes. Now value is %x.\n", n->bar.uiccmd);
+			break;
+		case 0x94:
+			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg1);
+			n->bar.ucmdarg1 = data & 0xffffffff;
+			printf("UIC arg1 writes. Now value is %x.\n", n->bar.ucmdarg1);
+			break;
+		case 0x98:
+			printf("UIC arg2 writes. Value was %x.\n", n->bar.ucmdarg2);
+			n->bar.ucmdarg2 = data & 0xffffffff;
+			printf("UIC arg2 writes. Now value is %x.\n", n->bar.ucmdarg3);
+			break;
+		case 0x9c:
+			printf("UIC arg1 writes. Value was %x.\n", n->bar.ucmdarg3);
+			n->bar.ucmdarg3 = data & 0xffffffff;
+			printf("UIC arg3 writes. Now value is %x.\n", n->bar.ucmdarg3);
+			break;
+			
 		default:
 				break;
 	}
@@ -370,7 +620,7 @@ static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
 	 printf("ufs mmio read.\n");
      UfsCtrl *n = (UfsCtrl *)opaque;
      uint8_t *ptr = (uint8_t *)&n->bar;
-     uint64_t val = 0;
+     uint32_t val = 0;
 
      if (addr < sizeof(n->bar)) {
           memcpy(&val, ptr + addr, size);
@@ -379,7 +629,6 @@ static uint64_t ufs_mmio_read(void *opaque, hwaddr addr, unsigned size)
       trace_nvme_mmio_read(addr, size, val);
 
 	return val;
-    return 0;
 }
 
 
@@ -388,7 +637,12 @@ static void ufs_mmio_write(void *opaque, hwaddr addr, uint64_t data,
 {
 	  printf("ufs mmio write.\n");
 	  UfsCtrl *n = (UfsCtrl *)opaque;
-      ufs_write_bar(n, addr, data, size);
+	  if (addr < sizeof(n->bar)) {
+		  ufs_write_bar(n, addr, data, size);
+	  } else 
+		 printf("Out of bar's address.\n");
+	  
+      
       trace_nvme_mmio_write(addr, size, data);
 }
 
@@ -406,14 +660,13 @@ static const MemoryRegionOps ufs_mmio_ops = {
 
 static int ufs_check_constraints(UfsCtrl *n)
 {
-	printf("ufs check constraints\n");
-	/* remain null 		aran-lq*/
+	
     return 0;
 }
 
 static void ufs_init_lun(UfsCtrl *n)
 {
-	printf("ufs init lun\n");
+	
  }
 
 static void lnvm_init_id_ctrl(LnvmCtrl *ln)
@@ -673,60 +926,49 @@ static int lnvm_init(UfsCtrl *n)				//lnvm   controller 初始化函数				aran-
 
 static void ufs_init_ctrl(UfsCtrl *n)
 {
-	  printf("ufs init ctrl \n");
+	  n->bar.cap = 0;
+	  UFS_CAP_SET_NUTRS(n->bar.cap, n->nutrs);
+	  UFS_CAP_SET_NUTMRS(n->bar.cap, n->nutmrs);
+	  UFS_CAP_SET_NORTT(n->bar.cap, 2);	//num(2) of outstanding RTT request support
+	  UFS_CAP_SET_64AS(n->bar.cap, 1); 
 
-
- //   /* 寄存器设置        aran-lq */
-	  n->bar.cap = 		0x1707101f;
+	  /* HCI register init aran-lq */
 	  n->bar.vs = 		0x00000210;
 	  n->bar.is = 		0x00000000;
 	  n->bar.ie = 		0x00000000;
-	  n->bar.hcs = 		0x0000000f;
-	  n->bar.hce = 		0x00000001;
-	  n->bar.utrlba = 	0x80000000;
-	  n->bar.utrlbau =	0xb0000000;
+	  n->bar.hcs = 		0x00000000;
+	  n->bar.hce = 		0x00000000;
+	  n->bar.utrlba = 	0x00000000;
+	  n->bar.utrlbau =	0x00000000;
 	  n->bar.utrldbr = 	0x00000000;
 	  n->bar.utrlclr = 	0x00000000;
 	  n->bar.utrlrsr = 	0x00000000;
-	  n->bar.utmrlba = 	0xe0000000;
-	  n->bar.utmrlbau = 0xf8000000;
+	  n->bar.utmrlba = 	0x00000000;
+	  n->bar.utmrlbau = 0x00000000;
 	  n->bar.utmrldbr = 0x00000000;
 	  n->bar.utmrlclr = 0x00000000;
 	  n->bar.utmrlrsr = 0x00000000;
 	  
-	  printf("ufs init ctrl over \n");
-	  //	   if (lnvm_dev(n))
-//		   UFS_CAP_SET_LNVM(n->bar.cap, 1);
-
-	  
-	
-   
- 
 }
 
 static void ufs_init_pci(UfsCtrl *n)
 {   
-	printf("ufs init pci\n");
     uint8_t *pci_conf = n->parent_obj.config;
-
-    pci_conf[PCI_INTERRUPT_PIN] = 1;
-    pci_config_set_prog_interface(pci_conf, 0x2);
+    pci_conf[PCI_INTERRUPT_PIN] = 4;//PIN_D		aran-lq
     pci_config_set_vendor_id(pci_conf, n->vid);
     pci_config_set_device_id(pci_conf, n->did);
-    pci_config_set_class(pci_conf, 0x0000);										//change to Zero			aran-lq
-    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",		//ufs_mmio_ops  register	aran-lq
+    pci_config_set_class(pci_conf, 0x0000);	
+    memory_region_init_io(&n->iomem, OBJECT(n), &ufs_mmio_ops, n, "ufshcd",
         n->reg_size);
-    pci_register_bar(&n->parent_obj, 0,
-        PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64,
-        &n->iomem);
-	
-	printf("ufs init pci over\n");
+    pci_register_bar(&n->parent_obj, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &n->iomem);
+	//interrupt allocate	aran-lq
+	n->irq = pci_allocate_irq(&n->parent_obj);
+
    
 }
 
 static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备指针				aran-lq
 {	  
-	  printf("ufs_init\n");
       UfsCtrl *n = UFS(pci_dev);
 	  int64_t bs_size;
 
@@ -753,7 +995,6 @@ static int ufs_init(PCIDevice *pci_dev)				//传入的是一个pci_dev的设备�
        ufs_init_lun(n);
        if (lnvm_dev(n))
           return lnvm_init(n);				//添加的代码 			aran-lq
-	   printf("ufs_init over\n");
     return 0;
 }
 
@@ -773,13 +1014,19 @@ static void lnvm_exit(UfsCtrl *n)
 
 static void ufs_exit(PCIDevice *pci_dev)			
 {
-	  printf("ufs exit\n");
       UfsCtrl *n = UFS(pci_dev);
 
       ufs_clear_ctrl(n);
 	  g_free(n->luns);
       g_free(n->trl);
       g_free(n->tml);
+	  
+	  //free IRQ  aran-lq
+	  if (n->irq) {
+		  g_free(n->irq);
+		  n->irq = NULL;
+	  }
+	  
       if (lnvm_dev(n)) {
           lnvm_exit(n);			
     }
@@ -791,8 +1038,8 @@ static Property ufs_props[] = {
 	  DEFINE_PROP_UINT32("luns", UfsCtrl, num_luns, 1),	//name, state, field, defval	aran-lq
 	  DEFINE_PROP_UINT16("vid", UfsCtrl, vid, 0x144d),
 	  DEFINE_PROP_UINT16("did", UfsCtrl, did, 0xc00c),
-	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 32),
-	  DEFINE_PROP_UINT8("nutmrs", UfsCtrl, nutmrs, 8),
+	  DEFINE_PROP_UINT8("nutrs", UfsCtrl, nutrs, 31),
+	  DEFINE_PROP_UINT8("nutmrs", UfsCtrl, nutmrs, 7),
 	  DEFINE_PROP_UINT8("lver", UfsCtrl, lnvm_ctrl.id_ctrl.ver_id, 0),
 	  DEFINE_PROP_UINT32("ll2pmode", UfsCtrl, lnvm_ctrl.id_ctrl.dom, 0),
 	  DEFINE_PROP_UINT16("lsec_size", UfsCtrl, lnvm_ctrl.params.sec_size, 4096),
@@ -824,7 +1071,6 @@ static const VMStateDescription ufs_vmstate = {
 
 static void ufs_class_init(ObjectClass *oc, void *data)
 {	
-	printf("ufs class init\n");
     DeviceClass *dc = DEVICE_CLASS(oc);			//将信息分别给到device_class和pci_device_class				aran-lq
     PCIDeviceClass *pc = PCI_DEVICE_CLASS(oc);
 
@@ -836,10 +1082,8 @@ static void ufs_class_init(ObjectClass *oc, void *data)
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Universal Flash Storage";
-	printf("ufs property initialize\n");
     dc->props = ufs_props;
     dc->vmsd = &ufs_vmstate;                    //vmstate   aran-lq
-	printf("ufs class init over\n");
 }
 
 static void ufs_get_bootindex(Object *obj, Visitor *v, void *opaque,
@@ -877,12 +1121,10 @@ out:
 
 static void ufs_instance_init(Object *obj)
 {
-	printf("ufs instance init\n");
     object_property_add(obj, "bootindex", "int32",
                         ufs_get_bootindex,
                         ufs_set_bootindex, NULL, NULL, NULL);
     object_property_set_int(obj, -1, "bootindex", NULL);
-	printf("ufs instance over\n");
 }
 
 static const TypeInfo ufs_info = {
@@ -895,7 +1137,6 @@ static const TypeInfo ufs_info = {
 
 static void ufs_register_types(void)
 {
-    printf("UFS register \n");
     type_register_static(&ufs_info);
 }
 
