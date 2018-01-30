@@ -391,7 +391,7 @@ static void uic_cmd_complete(UfsCtrl *n)
 }
 
 //compose read descriptor query response UPIU
-static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_req *req_buffer, uint64_t rsp_dma_addr)
+static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_req *req_buffer, uint32_t rsp_dma_addr)
 {
 	
 	rsp_buffer->qr.opcode = req_buffer->qr.opcode;
@@ -404,8 +404,9 @@ static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_
 	rsp_buffer->qr.length = req_buffer->qr.length;
 	int8_t desc_buffer[32] = {0};
 	//memset(desc_buffer, 0, rsp_buffer->qr.length);
-	//desc_buffer[1] = 0;
-	ufs_dma_write(n, rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE, (void*)&desc_buffer, rsp_buffer->qr.length);
+	printf("rsp dma addr was %x\n", rsp_dma_addr);
+	printf("rsp dma addr now is  %x\n", rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE);
+	ufs_dma_write(n, rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE, (void*)desc_buffer, rsp_buffer->qr.length);
 	
 }
 
@@ -415,7 +416,7 @@ static void ufs_clear_ctrl(UfsCtrl *n)
    }
    
 //handle cmd sendback tail like UTRD OCS_SUCCESS, IS set.
-static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint64_t dma_addr, int tag)
+static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint32_t dma_addr, int tag)
 {
 	buffer.header.dword_2 &= OCS_SUCCESS;
 	//write the OCS of UTRD 
@@ -449,7 +450,7 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   return 0;
    }
    
-static int ufshci_query_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+static int ufshci_query_sendback(UfsCtrl *n, uint32_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
 {
    printf("RESPONSE UPIU  DW0 = %x\n",rsp_buffer.header.dword_0);
    rsp_buffer.header.dword_0 =req_buffer.header.dword_0 & 0xffffff00;
@@ -497,7 +498,7 @@ static int ufshci_query_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp
    
    return 0;
 }
-static int ufshci_nop_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+static int ufshci_nop_sendback(UfsCtrl *n, uint32_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
 {
 	rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_NOP_IN;
 	printf("RESPONSE UPIU modified DW0 = %x\n",rsp_buffer.header.dword_0);
@@ -514,9 +515,13 @@ static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
 	utp_upiu_req req_buffer;
 	utp_upiu_rsp rsp_buffer;
 	//Command UPIU dma address
-	uint64_t req_dma_addr = buffer->command_desc_base_addr_lo;
+	uint32_t req_dma_addr = buffer->command_desc_base_addr_lo;
+	printf("req_dma_addr = %x\n",req_dma_addr);
+	printf("buffer response upiu offset = %x\n",buffer->response_upiu_offset);
+	printf("buffer response upiu length = %x\n",buffer->response_upiu_offset);
 	//Response UPIU dma address
-	uint64_t rsp_dma_addr = req_dma_addr + buffer->response_upiu_offset * sizeof(uint32_t);
+	uint32_t rsp_dma_addr = req_dma_addr + buffer->response_upiu_offset * sizeof(uint32_t);
+	printf("rsp_dma_addr = %x\n",rsp_dma_addr);
 	ufs_dma_read(n, req_dma_addr, (void*)&req_buffer, sizeof(req_buffer));
 	ufs_dma_read(n, rsp_dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
 	//get transaction type from request UPIU
@@ -551,11 +556,9 @@ static void ufs_trl_process(UfsCtrl *n, int *tag)
 {
 
 	UtpTransferReqDesc buffer;
-	uint64_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
+	uint32_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
 	//read current UTRD into buffer by DMA
-	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));
-	//pci_dma_read(&n->parent_obj, addr, buf, size);
-	
+	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));	
 	ufs_ucd_process(n, &buffer);
 	ufs_sendback_tail(n, buffer, dma_addr, tag[0]);
 }

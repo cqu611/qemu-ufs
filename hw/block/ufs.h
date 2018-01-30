@@ -604,6 +604,7 @@ struct utp_upiu_query {
 	uint16_t length;
 	uint32_t value;
 	uint32_t reserved[2];
+	uint8_t	data[8];
 };
 
 /*
