@@ -393,7 +393,9 @@ static void uic_cmd_complete(UfsCtrl *n)
 //compose read descriptor query response UPIU
 static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_req *req_buffer, uint32_t rsp_dma_addr)
 {
-	
+	printf("RESPONSE UPIU modified befor DW2 = %x\n",rsp_buffer->header.dword_2);
+	rsp_buffer->header.dword_2 =req_buffer->header.dword_2 & 0x0000ffff;
+	printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer->header.dword_2);
 	rsp_buffer->qr.opcode = req_buffer->qr.opcode;
 	printf("request query read desc id num is: %x\n",req_buffer->qr.idn);
 	rsp_buffer->qr.idn = req_buffer->qr.idn;
@@ -401,12 +403,19 @@ static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_
 	rsp_buffer->qr.selector = req_buffer->qr.selector;
 	printf("length lengthg = %x\n", req_buffer->qr.length);
 
-	rsp_buffer->qr.length = req_buffer->qr.length;
-	int8_t desc_buffer[32] = {0};
+	rsp_buffer->qr.length = req_buffer->qr.length;//output 4000. int16_t
+	//Assign length info to RESPONSE UPIU dword2 "Data Segment Length" field.
+	rsp_buffer->header.dword_2 |= rsp_buffer->qr.length << 16;
+	rsp_buffer->qr.data[0] = 0x40;
+	for(int i=1; i < 8; i++){
+		rsp_buffer->qr.data[i] = 0x01;
+	}
+	
+	//int8_t desc_buffer[32] = {0x40, 0x00};
 	//memset(desc_buffer, 0, rsp_buffer->qr.length);
-	printf("rsp dma addr was %x\n", rsp_dma_addr);
-	printf("rsp dma addr now is  %x\n", rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE);
-	ufs_dma_write(n, rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE, (void*)desc_buffer, rsp_buffer->qr.length);
+	//printf("rsp dma addr was %x\n", rsp_dma_addr);
+	//printf("rsp dma addr now is  %x\n", rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE);
+	//ufs_dma_write(n, rsp_dma_addr + GENERAL_UPIU_REQUEST_SIZE, (void*)desc_buffer, rsp_buffer->qr.length);
 	
 }
 
@@ -502,7 +511,7 @@ static int ufshci_nop_sendback(UfsCtrl *n, uint32_t dma_addr, utp_upiu_rsp rsp_b
 {
 	rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_NOP_IN;
 	printf("RESPONSE UPIU modified DW0 = %x\n",rsp_buffer.header.dword_0);
-	//dma write RESPONSE UPIU to host memory
+	//dma write RESPONSE UPIU to host memory, because the host only judge the dword if it's the right value
 	ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
 	
 	return 0;
@@ -569,8 +578,10 @@ static void ufs_db_process(UfsCtrl *n)
 	if(!ufs_get_db_slot(n, tag))
 		printf("Error when getting db slot.\n");
 	// print slot array tag[]
-  	//for(int i =0; i < 32; i++)
-		//printf("tag_out[%d] = %d\n",i, tag[i]);
+  	for(int i =0; i < 32; i++){
+		if(i%5 == 0) printf("\n");
+		printf("tag_out[%d] = %d ",i, tag[i]);
+	}
 	ufs_trl_process(n, tag);
 }
 

@@ -168,6 +168,7 @@ static void nvme_addr_read(NvmeCtrl *n, hwaddr addr, void *buf, int size)
     if (n->cmbsz && addr >= n->ctrl_mem.addr &&
                 addr < (n->ctrl_mem.addr + int128_get64(n->ctrl_mem.size))) {
         memcpy(buf, (void *)&n->cmbuf[addr - n->ctrl_mem.addr], size);
+		//if it's not use cmb, ussing dma directly.
     } else {
         pci_dma_read(&n->parent_obj, addr, buf, size);
     }
@@ -622,7 +623,7 @@ static void nvme_aer_process_cb(void *param)
         nvme_enqueue_req_completion(n->cq[0], req);
     }
 }
-
+//read write block completion function
 static void nvme_rw_cb(void *opaque, int ret)
 {
     NvmeRequest *req = opaque;
@@ -1349,7 +1350,7 @@ static uint16_t nvme_dsm(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 static uint16_t nvme_compare(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     NvmeRequest *req)
 {
-    NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
+    NvmeRwCmd *rw = (NvmeRwCmd *)nvme_aer_process_cb;
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
     uint64_t slba = le64_to_cpu(rw->slba);
     uint64_t prp1 = le64_to_cpu(rw->prp1);
@@ -1881,6 +1882,7 @@ static uint16_t nvme_del_sq(NvmeCtrl *n, NvmeCmd *cmd)
 
     nvme_free_sq(sq, n);
     return NVME_SUCCESS;
+    return NVME_SUCCESS;
 }
 
 static uint16_t nvme_init_sq(NvmeSQueue *sq, NvmeCtrl *n, uint64_t dma_addr,
@@ -1896,6 +1898,7 @@ static uint16_t nvme_init_sq(NvmeSQueue *sq, NvmeCtrl *n, uint64_t dma_addr,
     sq->cqid = cqid;
     sq->head = sq->tail = 0;
     sq->phys_contig = contig;
+	//if it is a continous address
     if (sq->phys_contig) {
         sq->dma_addr = dma_addr;
     } else {
@@ -1912,7 +1915,7 @@ static uint16_t nvme_init_sq(NvmeSQueue *sq, NvmeCtrl *n, uint64_t dma_addr,
         sq->io_req[i].sq = sq;
         QTAILQ_INSERT_TAIL(&(sq->req_list), &sq->io_req[i], entry);
     }
-
+	//Priority switch
     switch (prio) {
     case NVME_Q_PRIO_URGENT:
         sq->arb_burst = (1 << NVME_ARB_AB(n->features.arbitration));
@@ -1928,12 +1931,14 @@ static uint16_t nvme_init_sq(NvmeSQueue *sq, NvmeCtrl *n, uint64_t dma_addr,
         sq->arb_burst = NVME_ARB_LPW(n->features.arbitration) + 1;
         break;
     }
+	//when the timer expired, call nvme_process_sq function, sq as the argument
     sq->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nvme_process_sq, sq);
     sq->db_addr = 0;
     sq->eventidx_addr = 0;
 
     assert(n->cq[cqid]);
     cq = n->cq[cqid];
+	//insert this sq->entry to the cq->sq_list
     QTAILQ_INSERT_TAIL(&(cq->sq_list), sq, entry);
     n->sq[sqid] = sq;
 
@@ -2039,6 +2044,7 @@ static uint16_t nvme_init_cq(NvmeCQueue *cq, NvmeCtrl *n, uint64_t dma_addr,
     cq->eventidx_addr = 0;
     msix_vector_use(&n->parent_obj, cq->vector);
     n->cq[cqid] = cq;
+	//interrupt notify
     cq->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nvme_isr_notify, cq);
 
     return NVME_SUCCESS;
@@ -2623,6 +2629,7 @@ static void nvme_update_sq_eventidx(const NvmeSQueue *sq)
 static void nvme_update_sq_tail(NvmeSQueue *sq)
 {
     if (sq->db_addr) {
+		//read from MMIO region 
         nvme_addr_read(sq->ctrl, sq->db_addr, &sq->tail, sizeof(sq->tail));
     }
 }
@@ -2642,6 +2649,7 @@ static void nvme_process_sq(void *opaque)
     nvme_update_sq_tail(sq);
     while (!(nvme_sq_empty(sq) || QTAILQ_EMPTY(&sq->req_list)) &&
             processed++ < sq->arb_burst) {
+		//judge if the address is contigous
         if (sq->phys_contig) {
             addr = sq->dma_addr + sq->head * n->sqe_size;
         } else {
@@ -2649,7 +2657,7 @@ static void nvme_process_sq(void *opaque)
                 n->sqe_size);
         }
         nvme_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
-        nvme_inc_sq_head(sq);
+        nvme_inc_sq_head(sq);//head increment
 
         if (cmd.opcode == NVME_OP_ABORTED) {
             continue;
@@ -2661,7 +2669,7 @@ static void nvme_process_sq(void *opaque)
         req->cqe.cid = cmd.cid;
         req->aiocb = NULL;
         req->cmd_opcode = cmd.opcode;
-
+		//when there exist a sq, then nvme_io_cmd, else a nvme_admin_cmd
         status = sq->sqid ? nvme_io_cmd(n, &cmd, req) :
             nvme_admin_cmd(n, &cmd, req);
         if (status != NVME_NO_COMPLETE) {
@@ -2736,8 +2744,10 @@ static int nvme_start_ctrl(NvmeCtrl *n)
     n->cqe_size = 1 << NVME_CC_IOCQES(n->bar.cc);
     n->sqe_size = 1 << NVME_CC_IOSQES(n->bar.cc);
 
+	//initialize completion queue
     nvme_init_cq(&n->admin_cq, n, n->bar.acq, 0, 0,
             NVME_AQA_ACQS(n->bar.aqa) + 1, 1, 1);
+	//initialize submission queue
     nvme_init_sq(&n->admin_sq, n, n->bar.asq, 0, 0,
             NVME_AQA_ASQS(n->bar.aqa) + 1, NVME_Q_PRIO_HIGH, 1);
 
@@ -2762,6 +2772,7 @@ static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
         if (NVME_CC_EN(data) && !NVME_CC_EN(n->bar.cc)) {
             n->bar.cc = data;
             if (nvme_start_ctrl(n)) {
+				//Controller Status
                 n->bar.csts = NVME_CSTS_FAILED;
             } else {
                 n->bar.csts = NVME_CSTS_READY;
@@ -2798,7 +2809,7 @@ static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
         break;
     }
 }
-
+//mmio read - copy data from base address 
 static uint64_t nvme_mmio_read(void *opaque, hwaddr addr, unsigned size)
 {
     NvmeCtrl *n = (NvmeCtrl *)opaque;
@@ -2813,7 +2824,7 @@ static uint64_t nvme_mmio_read(void *opaque, hwaddr addr, unsigned size)
 
     return val;
 }
-
+//process door bell register
 static void nvme_process_db(NvmeCtrl *n, hwaddr addr, int val)
 {
     uint32_t qid;
@@ -2888,7 +2899,7 @@ static void nvme_process_db(NvmeCtrl *n, hwaddr addr, int val)
         }
     }
 }
-
+//mmio write	aran-lq
 static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data,
     unsigned size)
 {
