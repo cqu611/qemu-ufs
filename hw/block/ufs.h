@@ -113,6 +113,21 @@ typedef struct UfsBar {
 #define UFS_MASK(mask, offset)      ((mask) << (offset))
 #define UFS_BIT(x)  (1L << (x))
 
+/* Descriptor idn for Query requests */
+enum desc_idn {
+	QUERY_DESC_IDN_DEVICE		= 0x0,
+	QUERY_DESC_IDN_CONFIGURATION	= 0x1,
+	QUERY_DESC_IDN_UNIT		= 0x2,
+	QUERY_DESC_IDN_RFU_0		= 0x3,
+	QUERY_DESC_IDN_INTERCONNECT	= 0x4,
+	QUERY_DESC_IDN_STRING		= 0x5,
+	QUERY_DESC_IDN_RFU_1		= 0x6,
+	QUERY_DESC_IDN_GEOMETRY		= 0x7,
+	QUERY_DESC_IDN_POWER		= 0x8,
+	QUERY_DESC_IDN_MAX,
+};
+
+
 /* UTP UPIU Transaction Codes Initiator to Target */
 enum {
 	UPIU_TRANSACTION_NOP_OUT	= 0x00,
