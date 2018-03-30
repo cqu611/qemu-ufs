@@ -415,6 +415,10 @@ static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_
 			printf("Query interconnect descriptor. \n");
 			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_INTERCONNECT;
 			break;
+		case QUERY_DESC_IDN_STRING:
+			printf("Query string descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_STRING;
+			break;
 		case QUERY_DESC_IDN_CONFIGURATION:
 			printf("Query configuration descriptor. \n");
 			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_CONFIGURATION;
