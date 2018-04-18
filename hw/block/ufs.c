@@ -375,6 +375,7 @@ static uint16_t ufs_init_tml(TaskManageList *tml, UfsCtrl *n, uint64_t dma_addr)
 
 	return 0;
 }
+
 static void uic_cmd_complete(UfsCtrl *n)
 {
 	printf("UIC command complete procedure. \n");
@@ -385,9 +386,54 @@ static void uic_cmd_complete(UfsCtrl *n)
 	n->bar.hcs|= UFS_UTRLRDY_READY;
 	n->bar.hcs|= UFS_UTMRLRDY_READY;                              
 	ufs_update_irq(n);
+}
+
+//compose read descriptor query response UPIU
+static void ufs_qr_read_desc_rep(UfsCtrl *n, utp_upiu_rsp *rsp_buffer, utp_upiu_req *req_buffer, uint32_t rsp_dma_addr)
+{
+	//Assign the equal section of Request UPIU's OSF to Response UPIU, such as opcode, idn, index, selector.
+	rsp_buffer->header.dword_2 =req_buffer->header.dword_2 & 0x0000ffff;
+	rsp_buffer->qr.opcode = req_buffer->qr.opcode;
+	rsp_buffer->qr.idn = req_buffer->qr.idn;
+	rsp_buffer->qr.index = req_buffer->qr.index;
+	rsp_buffer->qr.selector = req_buffer->qr.selector;
+	rsp_buffer->qr.length = req_buffer->qr.length;//output 0x4000. int16_t
 	
-	//qemu_set_irq(n->irq, 1);
-	//qemu_set_irq(n->irq, 0);
+	//Assign length info to RESPONSE UPIU dword2 "Data Segment Length" field.
+	rsp_buffer->header.dword_2 |= rsp_buffer->qr.length << 16;
+	rsp_buffer->qr.data[0] = rsp_buffer->qr.length >> 8;
+	switch(rsp_buffer->qr.idn){
+		case QUERY_DESC_IDN_DEVICE:
+			printf("Query device descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_DEVICE;
+			break;
+		case QUERY_DESC_IDN_POWER:
+			printf("Query power descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_POWER;
+			break;
+		case QUERY_DESC_IDN_INTERCONNECT:
+			printf("Query interconnect descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_INTERCONNECT;
+			break;
+		case QUERY_DESC_IDN_STRING:
+			printf("Query string descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_STRING;
+			break;
+		case QUERY_DESC_IDN_CONFIGURATION:
+			printf("Query configuration descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_CONFIGURATION;
+			break;
+		case QUERY_DESC_IDN_UNIT:
+			printf("Query unit descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_UNIT;
+			break;
+		case QUERY_DESC_IDN_GEOMETRY:
+			printf("Query geometry descriptor. \n");
+			rsp_buffer->qr.data[1] = QUERY_DESC_IDN_GEOMETRY;
+			break;
+		default:
+			break;
+	}
 }
 
 static void ufs_clear_ctrl(UfsCtrl *n)
@@ -396,7 +442,7 @@ static void ufs_clear_ctrl(UfsCtrl *n)
    }
    
 //handle cmd sendback tail like UTRD OCS_SUCCESS, IS set.
-static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint64_t dma_addr, int tag)
+static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint32_t dma_addr, int tag)
 {
 	buffer.header.dword_2 &= OCS_SUCCESS;
 	//write the OCS of UTRD 
@@ -410,9 +456,8 @@ static void ufs_sendback_tail(UfsCtrl *n, UtpTransferReqDesc buffer, uint64_t dm
 	printf("now DB IS %x\n",n->bar.utrldbr);
 	//update Interrupt
 	ufs_update_irq(n);
-	
-	
 }
+
 
 static uint32_t ufshcd_get_tr_type(utp_upiu_req req)
 {
@@ -429,22 +474,58 @@ static int ufs_start_ctrl(UfsCtrl *n)
 	   return 0;
    }
    
-static int ufshci_query_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+static int ufshci_query_sendback(UfsCtrl *n, uint32_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
 {
-   printf("RESPONSE UPIU  DW2 = %x\n",rsp_buffer.header.dword_0);
+	//query response upiu header dword_0, assign query transaction type
    rsp_buffer.header.dword_0 =req_buffer.header.dword_0 & 0xffffff00;
-   rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_QUERY_RSP;
-   printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
+   rsp_buffer.header.dword_0 |= UPIU_TRANSACTION_QUERY_RSP;
+   
+   //query response upiu header dword_1, Query Function.
+   rsp_buffer.header.dword_1 =req_buffer.header.dword_1;
+   
+   switch(req_buffer.qr.opcode){
+	   case UPIU_QUERY_OPCODE_NOP:
+		   printf("UPIU query opcode NOP\n");
+		   break;
+	   case UPIU_QUERY_OPCODE_READ_DESC:
+		   printf("UPIU query opcode READ DESC\n");
+		   //read descriptors response
+		   ufs_qr_read_desc_rep(n, &rsp_buffer, &req_buffer, dma_addr);
+		   break;
+	   case UPIU_QUERY_OPCODE_WRITE_DESC:
+		   printf("UPIU query opcode WRITE DESC\n");
+		   break;
+	   case UPIU_QUERY_OPCODE_READ_ATTR:
+		   printf("UPIU query opcode READ ATTR\n");
+		   break;
+	   case UPIU_QUERY_OPCODE_WRITE_ATTR:
+		   printf("UPIU query opcode WRITE ATTR\n");
+		   break;
+	   case UPIU_QUERY_OPCODE_SET_FLAG:
+		   printf("UPIU query opcode SET FLAG\n");
+		   break;
+	   case UPIU_QUERY_OPCODE_CLEAR_FLAG:
+		   printf("UPIU query opcode CLEAR FLAG\n");
+		   break;
+	   case UPIU_QUERY_OPCODE_TOGGLE_FLAG:
+		   printf("UPIU query opcode TOGGLE FLAG\n");
+		   break;
+  
+	   default:
+		   break;
+   }
+   
    //dma write RESPONSE UPIU to host memory
    ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
    
    return 0;
 }
-static int ufshci_nop_sendback(UfsCtrl *n, uint64_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
+
+static int ufshci_nop_sendback(UfsCtrl *n, uint32_t dma_addr, utp_upiu_rsp rsp_buffer, utp_upiu_req req_buffer)
 {
 	rsp_buffer.header.dword_0 =req_buffer.header.dword_0 | UPIU_TRANSACTION_NOP_IN;
-	printf("RESPONSE UPIU modified DW2 = %x\n",rsp_buffer.header.dword_0);
-	//dma write RESPONSE UPIU to host memory
+	printf("RESPONSE UPIU modified DW0 = %x\n",rsp_buffer.header.dword_0);
+	//dma write RESPONSE UPIU to host memory, because the host only judge the dword if it's the right value
 	ufs_dma_write(n, dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
 	
 	return 0;
@@ -457,9 +538,13 @@ static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
 	utp_upiu_req req_buffer;
 	utp_upiu_rsp rsp_buffer;
 	//Command UPIU dma address
-	uint64_t req_dma_addr = buffer->command_desc_base_addr_lo;
+	uint32_t req_dma_addr = buffer->command_desc_base_addr_lo;
+	printf("req_dma_addr = %x\n",req_dma_addr);
+	printf("buffer response upiu offset = %x\n",buffer->response_upiu_offset);
+	printf("buffer response upiu length = %x\n",buffer->response_upiu_offset);
 	//Response UPIU dma address
-	uint64_t rsp_dma_addr = req_dma_addr + buffer->response_upiu_offset * sizeof(uint32_t);
+	uint32_t rsp_dma_addr = req_dma_addr + buffer->response_upiu_offset * sizeof(uint32_t);
+	printf("rsp_dma_addr = %x\n",rsp_dma_addr);
 	ufs_dma_read(n, req_dma_addr, (void*)&req_buffer, sizeof(req_buffer));
 	ufs_dma_read(n, rsp_dma_addr, (void*)&rsp_buffer, sizeof(rsp_buffer));
 	//get transaction type from request UPIU
@@ -489,16 +574,13 @@ static void ufs_ucd_process(UfsCtrl *n, UtpTransferReqDesc *buffer)
 
 }
 
-
 static void ufs_trl_process(UfsCtrl *n, int *tag)
 {
 
 	UtpTransferReqDesc buffer;
-	uint64_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
+	uint32_t dma_addr = n->bar.utrlba + (tag[0] * sizeof(buffer));
 	//read current UTRD into buffer by DMA
-	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));
-	//pci_dma_read(&n->parent_obj, addr, buf, size);
-	
+	ufs_dma_read(n,dma_addr, (void*)&buffer, sizeof(buffer));	
 	ufs_ucd_process(n, &buffer);
 	ufs_sendback_tail(n, buffer, dma_addr, tag[0]);
 }
@@ -509,8 +591,10 @@ static void ufs_db_process(UfsCtrl *n)
 	if(!ufs_get_db_slot(n, tag))
 		printf("Error when getting db slot.\n");
 	// print slot array tag[]
-  	//for(int i =0; i < 32; i++)
-		//printf("tag_out[%d] = %d\n",i, tag[i]);
+  	for(int i =0; i < 32; i++){
+		if(i%5 == 0) printf("\n");
+		printf("tag_out[%d] = %d ",i, tag[i]);
+	}
 	ufs_trl_process(n, tag);
 }
 

@@ -210,7 +210,7 @@ enum NvmeCmbszMask {
 typedef struct NvmeCmd {
     uint8_t     opcode;
     uint8_t     fuse;
-    uint16_t    cid;
+    uint16_t    cid;//Command Identifier
     uint32_t    nsid;
     uint64_t    res1;
     uint64_t    mptr;
@@ -971,7 +971,7 @@ typedef struct NvmeSQueue {
     uint64_t    dma_addr;
     uint64_t    completed;
     uint64_t    *prp_list;
-    QEMUTimer   *timer;
+    QEMUTimer   *timer;	//when timer is expired, call the process sq function
     NvmeRequest *io_req;
     QTAILQ_HEAD(sq_req_list, NvmeRequest) req_list;
     QTAILQ_HEAD(out_req_list, NvmeRequest) out_req_list;

@@ -113,6 +113,21 @@ typedef struct UfsBar {
 #define UFS_MASK(mask, offset)      ((mask) << (offset))
 #define UFS_BIT(x)  (1L << (x))
 
+/* Descriptor idn for Query requests */
+enum desc_idn {
+	QUERY_DESC_IDN_DEVICE		= 0x0,
+	QUERY_DESC_IDN_CONFIGURATION	= 0x1,
+	QUERY_DESC_IDN_UNIT		= 0x2,
+	QUERY_DESC_IDN_RFU_0		= 0x3,
+	QUERY_DESC_IDN_INTERCONNECT	= 0x4,
+	QUERY_DESC_IDN_STRING		= 0x5,
+	QUERY_DESC_IDN_RFU_1		= 0x6,
+	QUERY_DESC_IDN_GEOMETRY		= 0x7,
+	QUERY_DESC_IDN_POWER		= 0x8,
+	QUERY_DESC_IDN_MAX,
+};
+
+
 /* UTP UPIU Transaction Codes Initiator to Target */
 enum {
 	UPIU_TRANSACTION_NOP_OUT	= 0x00,
@@ -475,6 +490,7 @@ typedef struct UfsRangeType {
 #define ATTR_SET_TYPE_MASK      UFS_MASK(0xFF, 16)
 #define CONFIG_RESULT_CODE_MASK     0xFF
 #define GENERIC_ERROR_CODE_MASK     0xFF
+#define GENERAL_UPIU_REQUEST_SIZE	32
 
 /* GenSelectorIndex calculation macros for M-PHY attributes */
 #define UIC_ARG_MPHY_TX_GEN_SEL_INDEX(lane) (lane)
@@ -519,6 +535,19 @@ enum UfsStatusCodes {
 	UFS_INVALID_FIELD          = 0x0002,
 	UFS_INVALID_LUNID          = 0x000b,
     UFS_NO_COMPLETE            = 0xffff,
+};
+
+/* UTP QUERY Transaction Specific Fields OpCode */
+enum query_opcode {
+	UPIU_QUERY_OPCODE_NOP		= 0x0,
+	UPIU_QUERY_OPCODE_READ_DESC	= 0x1,
+	UPIU_QUERY_OPCODE_WRITE_DESC	= 0x2,
+	UPIU_QUERY_OPCODE_READ_ATTR	= 0x3,
+	UPIU_QUERY_OPCODE_WRITE_ATTR	= 0x4,
+	UPIU_QUERY_OPCODE_READ_FLAG	= 0x5,
+	UPIU_QUERY_OPCODE_SET_FLAG	= 0x6,
+	UPIU_QUERY_OPCODE_CLEAR_FLAG	= 0x7,
+	UPIU_QUERY_OPCODE_TOGGLE_FLAG	= 0x8,
 };
 
 
@@ -590,6 +619,8 @@ struct utp_upiu_query {
 	uint16_t length;
 	uint32_t value;
 	uint32_t reserved[2];
+	//data sectioin in query, I myself added.
+	uint8_t	data[8];
 };
 
 /*
